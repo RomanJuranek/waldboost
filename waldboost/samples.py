@@ -28,7 +28,7 @@ def predict_and_sample(chns, detector):
 def gather_samples(chns, rs, cs, shape):
     #u,v = chns.shape
     m,n = shape
-    X = [ chns[r:r+m,c:c+n] for r,c in zip(rs, cs) ]
+    X = [ chns[r:r+m,c:c+n,...] for r,c in zip(rs, cs) ]
     return np.array(X)
 
 
@@ -56,8 +56,8 @@ class SamplePool:
         self.min_neg = n_neg
         self.min_pos = n_pos
         self.logger = logger or logging.getLogger(__name__)
-        self.X0 = np.empty( (0,)+shape ); self.H0 = np.empty(0); self.P0 = 1
-        self.X1 = np.empty( (0,)+shape ); self.H1 = np.empty(0); self.P1 = 1
+        self.X0 = np.empty( (0,)+shape, np.float32 ); self.H0 = np.empty(0, np.float32); self.P0 = 1
+        self.X1 = np.empty( (0,)+shape, np.float32 ); self.H1 = np.empty(0, np.float32); self.P1 = 1
 
     def update(self, detector):
         req_neg = self.min_neg - self.n_neg

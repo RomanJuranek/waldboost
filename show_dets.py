@@ -15,8 +15,8 @@ verifier = load_model("model8_verifier.h5")
 model["opts"]["pyramid"]["n_per_oct"] = 8
 
 #data = "/mnt/data/Datasets/LP_Zoom/dataset_elite/img/*.jpg"
-#data = "/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/testing/images/*.jpg"
-data = "/mnt/cgt/home/LP_Detection/dataset/test/img/*.jpg"
+data = "/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/testing/images/*.jpg"
+#data = "/mnt/cgt/home/LP_Detection/dataset/test/img/*.jpg"
 img_fs = glob.glob(data)
 shuffle(img_fs)
 
@@ -26,7 +26,7 @@ for f in cycle(img_fs):
     image = cv2.resize(image, (v//2,u))
     bbs, score = waldboost.detect(image, model, verifier)
     bb_list = [ bb.astype("i").tolist() for bb,h in zip(bbs,score) if h > 0]
-    bbs ,w = cv2.groupRectangles(bb_list, 2, 0.5)
+    bbs ,w = cv2.groupRectangles(bb_list, 1, 0.5)
     #bbs = bb_list
     im = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
     for x,y,w,h in bbs:

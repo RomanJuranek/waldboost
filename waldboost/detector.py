@@ -7,7 +7,7 @@ import cv2
 
 def channel_pyramid(image, opts):
     pyr_opts = opts["pyramid"]
-    chns_opts = opts["channels"]
+    # chns_opts = opts["channels"]
 
     assert pyr_opts["shrink"] in [1,2], "Shrink factor can be only 1 or 2"
 
@@ -34,10 +34,10 @@ def channel_pyramid(image, opts):
             gy = cv2.filter2D(im, cv2.CV_32F, deriv_H[:,None])
             mag = cv2.magnitude(gx, gy)
             mag = cv2.resize(mag, (nw//2, nh//2))
-            #norm = cv2.sepFilter2D(mag, cv2.CV_32F, norm_H, norm_H)
-            #chn = mag / (norm + 1e-3)
-            chn = mag
-            yield chn, real_scale/2
+            norm = cv2.sepFilter2D(mag, cv2.CV_32F, norm_H, norm_H)
+            chn = mag / (norm + 1e-3)
+            #chn = mag
+            yield chn[...,None], real_scale/2
         #print("downscale")
         base_image = cv2.resize(base_image, (w//2, h//2))
 
@@ -49,9 +49,13 @@ def np_forward(chns, m, n, ftr, hs, thr, theta):
     cs = idx // (u-m)
     Hs = np.zeros_like(rs, np.float32)
     for f, h, t, th in zip(ftr, hs, thr, theta):
-        r0, c0, r1, c1 = f
-        fs = chns[rs+r0,cs+c0] - chns[rs+r1,cs+c1]
-        Hs += h[(fs > t)*1]
+        #r0, c0, r1, c1 = f
+        #fs = chns[rs+r0,cs+c0] - chns[rs+r1,cs+c1]
+
+        r0, c0 = f
+        fs = chns[rs+r0,cs+c0]
+        Hs += h[(fs > t).astype(np.uint8)]
+
         if th == -np.inf:
             continue
         mask = Hs >= th
@@ -63,7 +67,7 @@ def np_forward(chns, m, n, ftr, hs, thr, theta):
 
 def np_classifier(c):
     n = len(c)
-    ftr = np.empty( (n,4), np.int32 )
+    ftr = np.empty( (n,2), np.int32 )
     hs = np.empty( (n,2), np.float32 )
     thr = np.empty( n, np.float32 )
     theta = np.empty( n, np.float32 )
@@ -91,10 +95,9 @@ def detect(image, detector, verifier=None):
         r, c, h = np_forward(chns, m, n, ftr, hs, thr, theta)
         if r.size > 0:
             if verifier is not None:
-                print(f"Verifying {r.size} detections ({(h>0).size})")
                 X = gather_samples(chns, r, c, shape)
                 Y = verifier.predict([X[:,:,:,None], h]) # None is for conversion (N,H,W) -> (N,H,W,1)
-                verified = np.nonzero(Y > 0.9)[0]
+                verified = np.nonzero(Y > 0.5)[0]
                 r = r[verified]
                 c = c[verified]
                 h = h[verified]

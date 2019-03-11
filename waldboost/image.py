@@ -32,20 +32,34 @@ def defocus_blur(image, size):
     return cv2.filter2D(image, cv2.CV_32F, H)
 
 
+def motion_blur(image, angle, length=2):
+    pass
+
+
+def gamma(image, g):
+    return image ** (1/g)
+
+
 def random_adjust(image):
-    image = image.astype(np.float32)
+    image = image.astype(np.float32) / 256
 
     # normalize
-    image = normalize(image)
+    #image = normalize(image)
+
+    image = gamma(image, 1.5*np.random.rand()+0.5)
 
     # blur
-    image = defocus_blur(image, np.random.rand()*3)
+    image = defocus_blur(image, np.random.rand()*2)
 
     # noise
-    image = noise(image, np.random.rand()*0.05)
+    image = noise(image, np.random.rand()*0.02)
 
     # brightness, contrast
     image = contrast(image)
 
+    image = (np.clip(image*255,0,255)).astype(np.uint8)
 
-    return (np.clip(image*255,0,255)).astype(np.uint8)
+    #_,b = cv2.imencode(".jpg",image, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    #image = cv2.imdecode(b,cv2.IMREAD_GRAYSCALE)
+
+    return image
