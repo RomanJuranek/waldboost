@@ -41,9 +41,9 @@ training_images = image_generator(img_fs, gt_fs)
 # Define options
 alpha = 0.2
 T = 64
-n_pos = 1000
-n_neg = 2500
-shape = (10,40)
+n_pos = 2000
+n_neg = 25000
+shape = (10,40,3)
 name = "model8"
 
 model = {
@@ -62,7 +62,7 @@ model = {
 samples = samples.SamplePool(training_images, shape, n_pos=n_pos, n_neg=n_neg)
 
 for t in range(T):
-    logger.info(f">>> Training stage {t}/{T}")
+    logger.info(f">>> Training stage {t+1}/{T}")
     samples.update(model)
 
     X1,H1,P1 = samples.get_positive()
@@ -75,7 +75,7 @@ for t in range(T):
     weak, theta = training.fit_stage(F0, H0, P0, F1, H1, P1, alpha=alpha, theta=theta)
 
     ftr_idx, thr, hs = weak.as_tuple()
-    ftr = np.unravel_index(ftr_idx, shape+(1,))
+    ftr = np.unravel_index(ftr_idx, shape)
 
     p = np.sum(H0 > theta) / H0.size
     if theta > -np.inf and p > 0.95:
@@ -107,7 +107,7 @@ logger.info("Training verification model")
 from waldboost import verification
 X0,H0,_ = data0
 X1,H1,_ = data1
-M = verification.model(shape+(1,))
+M = verification.model(shape)
 verification.train(M, X0, H0, X1, H1)
 
 logger.info("Saving verification model")

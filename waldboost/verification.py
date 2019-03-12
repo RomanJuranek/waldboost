@@ -6,27 +6,30 @@ from tensorflow.keras.models import Model
 
 def model(input_shape):
     img = Input(shape = input_shape)
-    score = Input(shape = (1,))
-    x = Conv2D(16, 3, padding="same")(img)
+    score = Input([1])
+
+    x = Conv2D(32, 3, padding="same")(img)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
-    x = Conv2D(16, 3, padding="same")(x)
+    x = Conv2D(32, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
     x = MaxPool2D()(x)
+
     x = Conv2D(32, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
     x = Conv2D(32, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
+
     x = Flatten()(x)
     x = Dropout(0.25)(x)
-    x = Dense(8, activation="relu")(x)
-    x = Dropout(0.25)(x)
+    x = Dense(32, activation="relu")(x)
     x = Dense(1, activation="linear")(x)
     x = Add()([x, score])
     x = Activation("sigmoid")(x)
+
     return Model(inputs=[img, score], outputs=x)
 
 
@@ -42,7 +45,7 @@ def train(M, X0, H0, X1, H1, batch_size=64):
             i0 = np.random.choice(N0, b)
             i1 = np.random.choice(N1, b)
             X = [
-                np.concatenate([X0[i0,:,:,None], X1[i1,:,:,None]]).astype("f"),
+                np.concatenate([X0[i0,...], X1[i1,...]]).astype("f"),
                 np.concatenate([H0[i0], H1[i1]]).astype("f"),
             ]
             l = M.train_on_batch(X, Y)

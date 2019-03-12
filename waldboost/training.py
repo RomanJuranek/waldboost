@@ -1,12 +1,27 @@
+""" WaldBoost training algortithm
+
+Support for training of waldboost classifiers. The functions fit_stage accepts
+training data (negative and positive samples X, their responses H and priors P)
+and returns new weak classifier of specified type. The module implements
+a DecisionStump class for simple threshold-based weak classifiers.
+
+See also:
+waldboost.training.DecisionStump
+waldboost.training.fit_stage
+"""
+
+
 import logging
 import numpy as np
-from itertools import combinations
 
 
 logger = logging.getLogger(__name__)
 
 
 def find_threshold(f0, w0, f1, w1, edges=None):
+    """
+    Find threshold to separate two distributions with minimal error.
+    """
     if edges is None:
         f = np.concatenate([f0,f1])
         emin = np.min(f) - 1e-3
@@ -73,6 +88,9 @@ def fit_stage(
     X0, H0, P0, X1, H1, P1,
     wh = DecisionStump,
     alpha=0.1, theta=None):
+    """
+    Some sensible doc here
+    """
 
     N0 = X0.shape[0]
     N1 = X1.shape[0]
@@ -119,22 +137,3 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
         theta = ts[np.max(idx)]
     logger.debug(f"theta = {theta:.2f}")
     return theta
-
-
-def pixel_comparison(X, params):
-    r0, c0, r1, c1 = params
-    return X[:,r0,c0] - X[:,r1,c1]
-
-
-def feature_params(shape, max_dist = 3):
-    u,v = shape
-    r,c = np.mgrid[:u,:v]
-    r = r.ravel()
-    c = c.ravel()
-    params = []
-    for p0, p1 in combinations(zip(r,c), 2):
-        d = np.linalg.norm(np.array(p1) - np.array(p0))
-        if 0 < d < max_dist:
-            params.append(p0 + p1)
-    logger.debug(f"{len(params)} features generated")
-    return params

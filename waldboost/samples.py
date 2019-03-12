@@ -6,8 +6,8 @@ from .detector import forward, channel_pyramid, bbs_from_dets
 
 
 def sample_random(chns, shape, sample_prob=1e-3):
-    u,v = chns.shape
-    m,n = shape
+    u,v,_ = chns.shape
+    m,n,_ = shape
     if u > m and v > n:
         map = np.random.rand(u-m,v-n) < sample_prob
         r,c = np.nonzero(map)
@@ -27,14 +27,14 @@ def predict_and_sample(chns, detector):
 
 def gather_samples(chns, rs, cs, shape):
     #u,v = chns.shape
-    m,n = shape
+    m,n,_ = shape
     X = [ chns[r:r+m,c:c+n,...] for r,c in zip(rs, cs) ]
     return np.array(X)
 
 
 def sample_from_bbs(chns, shape, bbs):
-    u,v = chns.shape
-    m,n = shape
+    u,v,_ = chns.shape
+    m,n,_ = shape
     map = np.zeros((max(u-m,0),max(v-n,0)), np.bool)
     for bb in bbs:
         x,y,w,h = bb.astype(np.int)
