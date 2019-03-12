@@ -38,10 +38,10 @@ def grad_hist(image, n_bins=6, full=False):
     theta = np.linspace(0, max_theta, n_bins+1)
     cs = np.cos(theta[:-1])
     sn = np.sin(theta[:-1])
-    u,v = dx.shape
-    chns = np.empty((u,v,n_bins), dx.dtype)
+    u,v = gx.shape
+    chns = np.empty((u,v,n_bins), gx.dtype)
     for i,(c,s) in enumerate(zip(cs,sn)):
-        chns[...,i] = dx*c - dy*s;
+        chns[...,i] = gx*c - gy*s;
     if full:
         return np.fmax(chns, 0)
     else:
@@ -72,8 +72,10 @@ def channel_pyramid(image, opts):
             im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)
             im = im.astype(np.float32) / 256
 
-            chns = grad_mag(im, norm=5)
-            chns = block_reduce(chns, (2,2,1), np.max)
+            chns = [grad_mag(im, norm=5), grad_hist(im, n_bins=6)]
+            chns = np.concatenate(chns, axis=-1)
+
+            chns = block_reduce(chns, (shrink,shrink,1), np.max)
             if smooth > 0:
                 H = np.dot(triangle_kernel(smooth)[:,None], triangle_kernel(smooth)[None,:])[...,None]
                 chns = convolve(chns, H)
