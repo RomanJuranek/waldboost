@@ -38,7 +38,7 @@ def train(M, X0, H0, X1, H1, batch_size=64):
     M.compile(loss="binary_crossentropy", optimizer="adam")
     N0,N1 = X0.shape[0], X1.shape[0]
     Y = np.array([0]*b + [1]*b, dtype="f")
-    for e in range(20):
+    for e in range(2):
         print(f"Epoch {e}")
         loss = []
         for _ in range(1000):

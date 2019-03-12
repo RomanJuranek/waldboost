@@ -15,13 +15,18 @@ def bb_proximity(bb0, bb1):
     return (u-a)**2 + (v-b)**2 + (w-c)**2
 
 
-def partition(bbs, gt=None, max_tp_dist=50, min_fp_dist=50):
-    if gt is None:
-        return [], np.arange(bbs.shape[0])
+def partition(bbs, gt=None, dist_thr=0):
+    """
+    Partition bounding boxes to two groups by proximity to a ground truth bounding boxes.
+
+    If no gt is specified, partition evaluates to false.
+    """
+    if gt is None or gt.size == 0:
+        return np.zeros(bbs.shape[0], np.bool)
     dist = [[bb_proximity(g,d) for d in bbs] for g in gt]
     dist = np.array(dist)
     dist = np.min(dist, axis=0)
-    return np.nonzero(dist<max_tp_dist)[0], np.nonzero(dist>min_fp_dist)[0]
+    return dist < dist_thr
 
 
 def read_bbgt(filename, lbls=None, ilbls=None):

@@ -12,7 +12,7 @@ with open("model8.pkl","rb") as f:
 
 verifier = load_model("model8_verifier.h5")
 
-model["opts"]["pyramid"]["n_per_oct"] = 8
+model["opts"]["pyramid"]["n_per_oct"] = 4
 
 #data = "/mnt/data/Datasets/LP_Zoom/dataset_elite/img/*.jpg"
 #data = "/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/testing/images/*.jpg"
@@ -40,8 +40,15 @@ for f in cycle(img_fs):
     for x,y,w,h in bbs:
         cv2.rectangle(im, (x,y),(x+w,y+h), (0,255,255), 1)
 
+    crops = []
     for x,y,w,h in bbs_nms:
         cv2.rectangle(im, (x,y),(x+w,y+h), (64,255,64), 2)
+        crops.append( cv2.resize(image[y:y+h,x:x+w],(80,20)) )
+
+    if crops:
+        crops = np.hstack(crops)
+        cv2.imshow("LPS", crops)
 
     cv2.imshow("DETS", im)
+
     cv2.waitKey()

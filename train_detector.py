@@ -15,8 +15,9 @@ logger = logging.getLogger("WaldBoost")
 
 # Define data
 # /home/ijuranek/matylda1
-img_fs = sorted(glob.glob("/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/training/images/*.jpg"))
-gt_fs = sorted(glob.glob("/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/training/gt/*.txt"))
+data = "/mnt/cgt/home/LP_Detection/dataset/train"
+img_fs = sorted(glob.glob(data + "/img/*.jpg"))
+gt_fs = sorted(glob.glob(data + "/gt/*.txt"))
 
 def image_generator(img_fs, gt_fs):
     fs = list(zip(img_fs, gt_fs))
@@ -29,9 +30,10 @@ def image_generator(img_fs, gt_fs):
         h,w = im.shape
         im = cv2.resize(im, (w//2,h))
         ima = random_adjust(im)
-        gt = groundtruth.read_bbgt(gt_f, lbls={"LP"})
-        gt[:,0] /= 2
-        gt[:,2] /= 2
+        gt = groundtruth.read_bbgt(gt_f, lbls={"lp"})
+        if gt.size > 0:
+            gt[:,0] /= 2
+            gt[:,2] /= 2
         logger.debug(f"Loaded {basename(img_f)} with {len(gt)} objects")
         yield im, gt
 
@@ -39,10 +41,10 @@ training_images = image_generator(img_fs, gt_fs)
 
 
 # Define options
-alpha = 0.2
-T = 64
-n_pos = 2000
-n_neg = 25000
+alpha = 0.15
+T = 128
+n_pos = 100
+n_neg = 500
 shape = (10,40,3)
 name = "model8"
 
@@ -50,10 +52,9 @@ model = {
     "opts": {
         "shape": shape,
         "pyramid": {
-            "shrink": 2,
+            "shrink": 1,
             "n_per_oct": 8,
-            "smooth": 0,
-            "channels": [ ],
+            "smooth": 1,
         }
     },
     "classifier": []

@@ -82,19 +82,21 @@ class SamplePool:
                 if req_neg > 0:
                     r,c,h = predict_and_sample(chns, detector)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    _,fp = groundtruth.partition(dt, gt, max_tp_dist=10, min_fp_dist=1000)
-                    if fp.size > 0:
+                    fp = groundtruth.partition(dt, gt, dist_thr=500) == False
+                    if np.any(fp):
+                        fp = np.nonzero(fp)[0]
                         if fp.size > 200:
                             fp = np.random.choice(fp, 200)
                         new_X0.append(gather_samples(chns, r[fp], c[fp], self.shape))
                         new_H0.append(h[fp])
                         req_neg -= fp.size
 
-                if req_pos > 0:  # HACK: new tp samples has wrong value of H - disable when classifeir is initialized
+                if req_pos > 0:
                     r,c,h = sample_from_bbs(chns, self.shape, gt*scale)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    tp,_ = groundtruth.partition(dt, gt, max_tp_dist=10, min_fp_dist=1000)
-                    if tp.size > 0:
+                    tp = groundtruth.partition(dt, gt, dist_thr=20) == True
+                    if np.any(tp):
+                        tp = np.nonzero(tp)[0]
                         new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))
                         new_H1.append(h[tp])
                         req_pos -= tp.size
