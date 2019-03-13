@@ -12,7 +12,7 @@ def bb_to_xys(bb, f=20):
 def bb_proximity(bb0, bb1):
     a,b,c = bb_to_xys(bb0)
     u,v,w = bb_to_xys(bb1)
-    return (u-a)**2 + (v-b)**2 + (w-c)**2
+    return math.sqrt((u-a)**2 + (v-b)**2 + (w-c)**2)
 
 
 def partition(bbs, gt=None, dist_thr=0):
@@ -41,6 +41,6 @@ def read_bbgt(filename, lbls=None, ilbls=None):
             if lbl in lbls:
                 bb = tuple(map(int, elms[1:5]))
                 bb = bbox.set_aspect_ratio(bb, ar=8, type=bbox.KEEP_WIDTH)
-                bb = bbox.resize(bb, 1.2)
+                bb = bbox.resize(bb, 1.3)
                 gt.append(bb)
     return np.array(gt)
