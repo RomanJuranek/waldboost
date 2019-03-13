@@ -63,6 +63,10 @@ def detect(image, detector, verifier=None):
     # Loop over the channel pyramid and gather results
     for chns, scale in channel_pyramid(image, detector["opts"]):
         r, c, h = np_forward(chns, m, n, ftr, hs, thr, theta)
+        mask = h > -1
+        r = r[mask]
+        c = c[mask]
+        h = h[mask]
         if r.size > 0:
             if verifier is not None:
                 X.append( gather_samples(chns, r, c, shape ))
