@@ -29,3 +29,25 @@ def save_cache(data, filename):
     import pickle
     with open(filename, "wb") as f:
         pickle.dump(data, f)
+
+
+def load_cache(filename):
+    import pickle
+    with open(filename, "rb") as f:
+        return pickle.load(f)
+
+
+def montage(X, nrows=4, ncols=4, figsize=None):
+    import matplotlib.pyplot as plt
+    if figsize is None:
+        width = 15
+        h,w = X.shape[1:]
+        f = w*ncols / width
+        figsize = width, (h*nrows)/f
+        print(figsize)
+    fig = plt.figure(figsize=figsize)
+    for i,x in enumerate(X[:nrows*ncols]):
+        plt.subplot(nrows, ncols, i+1)
+        plt.imshow(x, cmap="gray")
+        plt.axis("off")
+    plt.show()
