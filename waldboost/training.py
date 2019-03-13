@@ -3,7 +3,15 @@
 Support for training of waldboost classifiers. The functions fit_stage accepts
 training data (negative and positive samples X, their responses H and priors P)
 and returns new weak classifier of specified type. The module implements
-a DecisionStump class for simple threshold-based weak classifiers.
+a DecisionStump class for threshold-based weak classifiers.
+
+Training data are represented as numpy matrices with shapes
+
+X0,X1   (F,N0), (F,N1)
+H0,H1   (N0,), (N1,)
+P0,P1   scalars 0 < P < 1
+
+Where F is number of features, N0, N1 amout of negative and positive samples.
 
 See also:
 waldboost.training.DecisionStump
@@ -58,6 +66,20 @@ def normalized_weights(W0, W1):
 
 
 class DecisionStump:
+    """
+    Simple, threshold-based classifier.
+    It optimizes thresholds for all features, picks the one
+    with minimal error and trains response table (2 items).
+    It is represented by feature id, threshold value and the response table.
+
+    DecisionStump.fit fits the classifier and returns
+    new instance. eval returns responses for given samples.
+
+    Example:
+    c = DecisionStump.fit(X0, W0, X1, W1)
+    Y0 = c.eval(X0)
+    Y1 = c.eval(X1)
+    """
     def __init__(self, ftr, thr, hs):
         self.ftr = ftr
         self.thr = thr
@@ -89,7 +111,8 @@ def fit_stage(
     wh = DecisionStump,
     alpha=0.1, theta=None):
     """
-    Some sensible doc here
+    Warning:
+    The function mutates values in H0 and H1.
     """
 
     N0 = X0.shape[0]
@@ -111,7 +134,7 @@ def fit_stage(
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
     """
-    Fit threshold accorting to SPRT.
+    Fit threshold according to SPRT.
     """
     max0 = np.max(H0)
     min1 = np.min(H1)
