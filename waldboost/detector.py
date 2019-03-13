@@ -14,10 +14,11 @@ def np_forward(chns, m, n, ftr, hs, thr, theta):
     chs = np.empty_like(rs)
     Hs = np.zeros_like(rs, np.float32)
     for f, h, t, th in zip(ftr, hs, thr, theta):
-        r0, c0, ch0 = f
-        chs[:] = ch0
-        fs = chns[rs+r0,cs+c0,chs]
-        Hs += h[(fs > t).astype(np.uint8)]
+        # r0, c0, ch0 = f
+        # chs[:] = ch0
+        # fs = chns[rs+r0,cs+c0,chs]
+        # Hs += h[(fs > t).astype(np.uint8)]
+        Hs += eval_dstump(chns, rs, cs, chs, f, h, t)
         if th == -np.inf:
             continue
         mask = Hs >= th
@@ -26,6 +27,13 @@ def np_forward(chns, m, n, ftr, hs, thr, theta):
         chs = chs[mask]
         Hs = Hs[mask]
     return rs, cs, Hs
+
+
+def eval_dstump(chns, rs, cs, chs, ftr, hs, thr):
+    r0, c0, ch0 = ftr
+    chs[:] = ch0
+    fs = chns[rs+r0,cs+c0,chs]
+    return hs[(fs > thr).astype(np.uint8)]
 
 
 def np_classifier(c):
@@ -63,7 +71,7 @@ def detect(image, detector, verifier=None):
     # Loop over the channel pyramid and gather results
     for chns, scale in channel_pyramid(image, detector["opts"]):
         r, c, h = np_forward(chns, m, n, ftr, hs, thr, theta)
-        mask = h > -1
+        mask = h > 1
         r = r[mask]
         c = c[mask]
         h = h[mask]
