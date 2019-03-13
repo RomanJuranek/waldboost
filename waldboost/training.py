@@ -102,8 +102,48 @@ class DecisionStump:
         bin = (X[self.ftr,...] > self.thr).astype(np.uint8)
         return self.hs[bin]
 
+    def eval_bin(self, X):
+        return (X[self.ftr,...] > self.thr).astype(np.uint8)
+
     def as_tuple(self):
         return self.ftr, self.thr, self.hs
+
+
+class DecisionTree:
+    def __init__(self, root):
+        self.root = root
+
+    @staticmethod
+    def fit_node(X0, W0, X1, W1, depth):
+        node = DecisionStump.fit(X0, W0, X1, W1)
+        b0 = node.eval_bin(X0)
+        b1 = node.eval_bin(X1)
+        if depth > 1:
+            left =  DecisionTree.fit_node(X0[...,b0==0], W0[b0==0], X1[...,b1==0], W1[b1==0], depth-1)
+            right = DecisionTree.fit_node(X0[...,b0==1], W0[b0==1], X1[...,b1==1], W1[b1==1], depth-1)
+        else:
+            left = right = None
+        return node.as_tuple(), left, right
+
+    @classmethod
+    def fit(cls, X0, W0, X1, W1, depth=2):
+        root_node = DecisionTree.fit_node(X0, W0, X1, W1, depth)
+        return cls(root_node)
+
+    def eval_node_bin(self, X, node):
+        (ftr, thr, hs), left, right = node
+        bin = (X[ftr,...] > thr).astype(np.uint8)
+        if left is None:
+            return hs[bin]
+        h0 = self.eval_node_bin(X[...,bin==0], left)
+        h1 = self.eval_node_bin(X[...,bin==1], right)
+        h = np.empty(X.shape[1], "f")
+        h[bin==0] = h0
+        h[bin==1] = h1
+        return h
+
+    def eval(self, X):
+        return self.eval_node_bin(X, self.root)
 
 
 def fit_stage(
