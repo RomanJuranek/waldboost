@@ -99,7 +99,7 @@ class DecisionStump:
         return cls(ftr, thr, hs)
 
     def eval(self, X):
-        bin = (X[self.ftr,...] > self.thr).astype(np.uint8)
+        bin = self.eval_bin(X)
         return self.hs[bin]
 
     def eval_bin(self, X):
@@ -200,3 +200,35 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
         theta = ts[np.max(idx)]
     logger.debug(f"theta = {theta:.2f}")
     return theta
+
+
+def fit_model(model, pool, alpha, T):
+    for t in range(T):
+        logger.info(f"Training stage {t+1}/{T}")
+        pool.update(model)
+
+        X1,H1,P1 = pool.get_positive()
+        X0,H0,P0 = pool.get_negative()
+
+        F0 = np.moveaxis(X0,0,-1).reshape(-1,H0.size) # Transform (N,H,W) -> (HxW,N)
+        F1 = np.moveaxis(X1,0,-1).reshape(-1,H1.size) # Transform (N,H,W) -> (HxW,N)
+
+        theta = None if t%8==7 and t<64 else -np.inf
+        weak, theta = fit_stage(F0, H0, P0, F1, H1, P1, alpha=alpha, theta=theta)
+
+        # Transform feature form F (index) to X (coordinates)
+        ftr_idx, thr, hs = weak.as_tuple()
+        ftr = np.unravel_index(ftr_idx, model["opts"]["shape"])
+
+        # Check negative probability induced by theta
+        p = np.sum(H0 > theta) / H0.size
+        if theta > -np.inf and p > 0.95:
+            logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
+            theta = -np.inf
+
+        # Add new stage to the model
+        stage = ftr, thr, hs, theta
+        model["classifier"].append(stage)
+
+        # Remove samples from the pool and update probabilites
+        pool.prune(theta)

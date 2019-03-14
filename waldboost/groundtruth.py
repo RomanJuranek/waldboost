@@ -9,7 +9,7 @@ def bb_to_xys(bb, f=20):
     return x+0.5*w, y+0.5*h, f*math.log2(w)
 
 
-def bb_proximity(bb0, bb1):
+def bb_distance(bb0, bb1):
     a,b,c = bb_to_xys(bb0)
     u,v,w = bb_to_xys(bb1)
     return math.sqrt((u-a)**2 + (v-b)**2 + (w-c)**2)
@@ -23,13 +23,13 @@ def partition(bbs, gt=None, dist_thr=0):
     """
     if gt is None or gt.size == 0:
         return np.zeros(bbs.shape[0], np.bool)
-    dist = [[bb_proximity(g,d) for d in bbs] for g in gt]
+    dist = [[bb_distance(g,d) for d in bbs] for g in gt]
     dist = np.array(dist)
     dist = np.min(dist, axis=0)
     return dist < dist_thr
 
 
-def read_bbgt(filename, lbls=None, ilbls=None):
+def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
     gt = []
     with open(filename,"r") as f:
         signature = f.readline()
@@ -37,10 +37,9 @@ def read_bbgt(filename, lbls=None, ilbls=None):
         for line in f:
             elms = line.split()
             lbl = elms[0]
-            # print(elms[1:5])
             if lbl in lbls:
                 bb = tuple(map(int, elms[1:5]))
-                bb = bbox.set_aspect_ratio(bb, ar=8, type=bbox.KEEP_WIDTH)
-                bb = bbox.resize(bb, 1.3)
+                bb = bbox.set_aspect_ratio(bb, ar=ar, type=bbox.KEEP_WIDTH)
+                bb = bbox.resize(bb, resize)
                 gt.append(bb)
     return np.array(gt)

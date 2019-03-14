@@ -18,6 +18,8 @@ from scipy.ndimage import convolve1d
 def grad_hist_4(image):
     """
     Integer version of grad_hist(image, n_bins=4, full=False)
+    Input image must be uint8
+    Output image is always int16
     """
 
     assert image.dtype == np.uint8
