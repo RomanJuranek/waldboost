@@ -26,26 +26,32 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def find_threshold(f0, w0, f1, w1, edges=None):
+def find_threshold(f0, w0, f1, w1, edges=10):
     """
-    Find threshold to separate two distributions with minimal error.
+    Find threshold to separate two distributions
     """
-    if edges is None:
+    if isinstance(edges, int):
         f = np.concatenate([f0,f1])
-        emin = np.min(f) - 1e-3
-        emax = np.max(f) + 1e-3
-        edges = np.linspace(emin, emax, 256)
-        #print(emin, emax, edges)
+        fmin = np.min(f)
+        fmax = np.max(f)
+        if issubclass(f, np.integer):
+            step = (fmax-fmin) // edges
+            fmax = step * edges
+            edges = np.r_[fmin:fmax+1:step]
+        else:
+            assert issubclass(f, np.floating)
+            edges = np.linspace(fmin, fmax+1e-3, edges)
     else:
+        assert isinstance(edges, np.ndarray)
         f0 = np.clip(f0, edges[0], edges[-1])
         f1 = np.clip(f1, edges[0], edges[-1])
+
     w0 = w0 / w0.sum()
     w1 = w1 / w1.sum()
     p0,_ = np.histogram(f0, bins=edges, weights=w0)
     p1,_ = np.histogram(f1, bins=edges, weights=w1)
     cdf0 = np.cumsum(p0)
     cdf1 = np.cumsum(p1)
-    #print(cdf0, cdf1)
     err = 2 * np.sqrt(cdf0*cdf1 + (1-cdf0)*(1-cdf1))
     k = np.argmin(err)
     return edges[k+1]
