@@ -4,7 +4,7 @@ from random import uniform, gauss
 import bbox
 
 
-def bb_to_xys(bb, f=20):
+def bb_to_xys(bb, f=32):
     x,y,w,h = bb
     return x+0.5*w, y+0.5*h, f*math.log2(w)
 
@@ -13,6 +13,14 @@ def bb_distance(bb0, bb1):
     a,b,c = bb_to_xys(bb0)
     u,v,w = bb_to_xys(bb1)
     return math.sqrt((u-a)**2 + (v-b)**2 + (w-c)**2)
+
+
+def bb_overlap(bb0, bb1):
+    raise NotImplementedError
+
+
+def cost_matrix(bbs0, bbs1, cost=bb_distance):
+    raise NotImplementedError
 
 
 def partition(bbs, gt=None, dist_thr=0):
@@ -30,6 +38,10 @@ def partition(bbs, gt=None, dist_thr=0):
 
 
 def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
+    """
+    Read ground truth from bbGt file.
+    See Piotr's Toolbox for details
+    """
     gt = []
     with open(filename,"r") as f:
         signature = f.readline()

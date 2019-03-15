@@ -46,7 +46,7 @@ def random_adjust(image):
     # normalize
     #image = normalize(image)
 
-    image = gamma(image, 1.5*np.random.rand()+0.5)
+    image = gamma(image, 1*np.random.rand()+0.5)
 
     # blur
     image = defocus_blur(image, np.random.rand()*2)

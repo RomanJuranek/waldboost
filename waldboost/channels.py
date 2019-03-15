@@ -61,14 +61,13 @@ def channel_pyramid(image, opts):
     smooth = pyr_opts["smooth"]
     channels = pyr_opts["channels"]
     target_dtype = pyr_opts["target_dtype"]
-
-    factor = 2**(-1/n_per_oct)
-
-    assert shrink in [1,2,3,4], "Shrink factor can be only integer 1 to 4"
+    
+    assert shrink in [1,2,3,4], "Shrink factor must be integer 1 <= shrink <= 4"
 
     base_image = image
     m,n,n_channels =  opts["shape"]
 
+    factor = 2**(-1/n_per_oct)
 
     while True:
         h,w = base_image.shape

@@ -6,61 +6,33 @@ import cv2
 from .channels import channel_pyramid
 
 
-def np_forward(chns, m, n, ftr, hs, thr, theta):
-    u,v,_ = chns.shape
+def forward(chns, detector):
+    u,v,ch_image = chns.shape
+    m,n,ch_cls = detector["opts"]["shape"]
+    assert ch_image == ch_cls, "Invalid shape"
+
     idx = np.arange(np.int32(max(u-m,0)*max(v-n,0)))
     rs = idx % (u-m)
     cs = idx // (u-m)
-    chs = np.empty_like(rs)
-    Hs = np.zeros_like(rs, np.float32)
-    for f, h, t, th in zip(ftr, hs, thr, theta):
-        # r0, c0, ch0 = f
-        # chs[:] = ch0
-        # fs = chns[rs+r0,cs+c0,chs]
-        # Hs += h[(fs > t).astype(np.uint8)]
-        Hs += eval_dstump(chns, rs, cs, chs, f, h, t)
-        if th == -np.inf:
+    hs = np.zeros_like(rs, np.float32)
+
+    for weak, theta in detector["classifier"]:
+        hs += weak.eval_on_image(chns, rs, cs)
+        if theta == -np.inf:
             continue
-        mask = Hs >= th
+        mask = hs >= theta
         rs = rs[mask]
         cs = cs[mask]
-        chs = chs[mask]
-        Hs = Hs[mask]
-    return rs, cs, Hs
+        hs = hs[mask]
 
-
-def eval_dstump(chns, rs, cs, chs, ftr, hs, thr):
-    r0, c0, ch0 = ftr
-    chs[:] = ch0
-    fs = chns[rs+r0,cs+c0,chs]
-    return hs[(fs > thr).astype(np.uint8)]
-
-
-def np_classifier(c):
-    n = len(c)
-    ftr = np.empty( (n,3), np.int32 )
-    hs = np.empty( (n,2), np.float32 )
-    thr = np.empty( n, np.float32 )
-    theta = np.empty( n, np.float32 )
-    for t, (f, t0, h, th) in enumerate(c):
-        ftr[t,...] = f
-        hs[t,...] = h
-        thr[t] = t0
-        theta[t] = th
-    return ftr, hs, thr, theta
-
-
-def forward(chns, detector):
-    m,n,_ = detector["opts"]["shape"]
-    ftr, hs, thr, theta = np_classifier(detector["classifier"])
-    return np_forward(chns, m, n, ftr, hs, thr, theta)
+    return rs, cs, hs
 
 
 def detect(image, detector, verifier=None):
     from .samples import gather_samples
 
     shape = m,n,_ = detector["opts"]["shape"]
-    ftr, hs, thr, theta = np_classifier(detector["classifier"])
+    #ftr, hs, thr, theta = np_classifier(detector["classifier"])
 
     X = []
     R = []
@@ -70,8 +42,9 @@ def detect(image, detector, verifier=None):
 
     # Loop over the channel pyramid and gather results
     for chns, scale in channel_pyramid(image, detector["opts"]):
-        r, c, h = np_forward(chns, m, n, ftr, hs, thr, theta)
-        mask = h > 1
+        #r, c, h = forward(chns, m, n, ftr, hs, thr, theta)
+        r, c, h = forward(chns, detector)
+        mask = h > -1
         r = r[mask]
         c = c[mask]
         h = h[mask]

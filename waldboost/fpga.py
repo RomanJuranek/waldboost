@@ -27,7 +27,8 @@ def grad_hist_4(image):
     H = np.array( [1,2,1], "i2")
     D = np.array( [1,0,-1], "i2")
 
-    im = convolve1d(convolve1d(image.astype("i2"),H,axis=0),H,axis=1) >> 4  # back to 8 bits
+    im = convolve1d(image.astype("i2"),H,axis=0)
+    convolve1d(im,H,axis=1,output=im) >> 4  # back to 8 bits
     gy = convolve1d(im, D, axis=0) >> 1
     gx = convolve1d(im, D, axis=1) >> 1
 

@@ -7,19 +7,24 @@ import numpy as np
 from os.path import basename
 
 from waldboost import groundtruth, training, samples
+from waldboost.channels import grad_mag, grad_hist
 from waldboost.image import random_adjust
+from waldboost.utils import save_cache
+from waldboost import verification
 
-logging.basicConfig(level=logging.DEBUG)
+
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)-5.5s] %(message)s")
 logger = logging.getLogger("WaldBoost")
-
 
 # Define data
 # /home/ijuranek/matylda1
 data = "/mnt/cgt/home/LP_Detection/dataset/train"
+#data = "/mnt/matylda1/juranek/Datasets/CAMEA/LicensePlatesDataset/training"
 img_fs = sorted(glob.glob(data + "/img/*.jpg"))
 gt_fs = sorted(glob.glob(data + "/gt/*.txt"))
-
-def image_generator(img_fs, gt_fs):
+def bbgt_image_generator(img_fs, gt_fs):
+    """
+    """
     fs = list(zip(img_fs, gt_fs))
     if not fs:
         return
@@ -29,87 +34,62 @@ def image_generator(img_fs, gt_fs):
         im = cv2.imread(img_f, cv2.IMREAD_GRAYSCALE)
         h,w = im.shape
         im = cv2.resize(im, (w//2,h))
-        ima = random_adjust(im)
-        gt = groundtruth.read_bbgt(gt_f, lbls={"lp"})
+        im = random_adjust(im)
+        gt = groundtruth.read_bbgt(gt_f, lbls={"lp"}, ar=8, resize=1.3)
         if gt.size > 0:
             gt[:,0] /= 2
             gt[:,2] /= 2
+        I = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+        for bb in gt:
+            x,y,w,h = bb.astype(int)
+            cv2.rectangle(I, (x,y),(x+w,y+h), (64,255,64), 2)
+        cv2.imshow("Image",I)
+        cv2.waitKey(1)
         logger.debug(f"Loaded {basename(img_f)} with {len(gt)} objects")
         yield im, gt
 
-training_images = image_generator(img_fs, gt_fs)
-
 
 # Define options
-alpha = 0.15
-T = 128
-n_pos = 100
-n_neg = 500
-shape = (10,40,3)
-name = "model8"
+alpha = 0.2
+T = 50
+n_pos = 20000
+n_neg = 50000
+shape = (10,40,4)
+name = "model9"
 
 model = {
     "opts": {
         "shape": shape,
         "pyramid": {
-            "shrink": 1,
-            "n_per_oct": 8,
-            "smooth": 1,
+            "shrink": 2,
+            "n_per_oct": 12,
+            "smooth": 0,
+            "target_dtype": np.uint8,
+            "channels": [ (grad_hist, (4,)) ]
         }
     },
     "classifier": []
 }
 
-samples = samples.SamplePool(training_images, shape, n_pos=n_pos, n_neg=n_neg)
-
-for t in range(T):
-    logger.info(f">>> Training stage {t+1}/{T}")
-    samples.update(model)
-
-    X1,H1,P1 = samples.get_positive()
-    X0,H0,P0 = samples.get_negative()
-
-    F0 = np.moveaxis(X0, 0,-1).reshape(-1,H0.size) # Transform (N,H,W) -> (HxW,N)
-    F1 = np.moveaxis(X1, 0,-1).reshape(-1,H1.size) # Transform (N,H,W) -> (HxW,N)
-
-    theta = None if t%2==1 else -np.inf
-    weak, theta = training.fit_stage(F0, H0, P0, F1, H1, P1, alpha=alpha, theta=theta)
-
-    ftr_idx, thr, hs = weak.as_tuple()
-    ftr = np.unravel_index(ftr_idx, shape)
-
-    p = np.sum(H0 > theta) / H0.size
-    if theta > -np.inf and p > 0.95:
-        logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
-        theta = -np.inf
-
-    stage = ftr, thr, hs, theta
-    model["classifier"].append(stage)
-
-    samples.prune(theta)
-
-logger.info("Saving model")
-import pickle
-with open(name + ".pkl","wb") as f:
-    pickle.dump(model, f)
+training_images = bbgt_image_generator(img_fs, gt_fs)
+tr_samples = samples.SamplePool(training_images, shape, n_pos=n_pos, n_neg=n_neg)
+training.fit_model(model, tr_samples, alpha, T, wh=training.DecisionTree)
+save_cache(model, name+".pkl")
 
 logger.info("Updating training set before training verifier")
-samples.min_neg = 2000
-samples.update(model)
+tr_samples.min_neg = 25000
+tr_samples.update(model)
 
 logger.info("Saving data")
-data1 = samples.get_positive()
-data0 = samples.get_negative()
-with open(name + "_data.pkl","wb") as f:
-    pickle.dump([data0, data1], f)
+data1 = tr_samples.get_positive()
+data0 = tr_samples.get_negative()
+save_cache([data0, data1], name+"_data.pkl")
 
 # train verification mdoel
 logger.info("Training verification model")
-from waldboost import verification
 X0,H0,_ = data0
 X1,H1,_ = data1
 M = verification.model(shape)
 verification.train(M, X0, H0, X1, H1)
-
 logger.info("Saving verification model")
 M.save(name + "_verifier.h5")

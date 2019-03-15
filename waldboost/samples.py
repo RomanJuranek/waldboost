@@ -57,8 +57,8 @@ class SamplePool:
         self.min_neg = n_neg
         self.min_pos = n_pos
         self.logger = logger or logging.getLogger(__name__)
-        self.X0 = np.empty( (0,)+shape, np.float32 ); self.H0 = np.empty(0, np.float32); self.P0 = 1
-        self.X1 = np.empty( (0,)+shape, np.float32 ); self.H1 = np.empty(0, np.float32); self.P1 = 1
+        self.X0 = None
+        self.X1 = None
 
     def update(self, detector):
         req_neg = self.min_neg - self.n_neg
@@ -83,7 +83,7 @@ class SamplePool:
                 if req_neg > 0:
                     r,c,h = predict_and_sample(chns, detector)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    fp = groundtruth.partition(dt, gt, dist_thr=50) == False
+                    fp = groundtruth.partition(dt, gt, dist_thr=20) == False
                     if np.any(fp):
                         fp = np.nonzero(fp)[0]
                         if fp.size > 500:
@@ -95,7 +95,7 @@ class SamplePool:
                 if req_pos > 0:
                     r,c,h = sample_from_bbs(chns, self.shape, gt*scale)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    tp = groundtruth.partition(dt, gt, dist_thr=3) == True
+                    tp = groundtruth.partition(dt, gt, dist_thr=5) == True
                     if np.any(tp):
                         tp = np.nonzero(tp)[0]
                         new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))
@@ -105,6 +105,11 @@ class SamplePool:
             if req_neg <= 0 and req_pos <= 0:
                 break
 
+        if self.X0 is None:  # uninitialized
+            dtype = new_X0[0].dtype
+            self.X0 = np.empty((0,)+self.shape, dtype); self.H0 = np.empty(0, np.float32); self.P0 = 1
+            self.X1 = np.empty((0,)+self.shape, dtype); self.H1 = np.empty(0, np.float32); self.P1 = 1
+
         self.X0 = np.concatenate(new_X0+[self.X0])
         self.H0 = np.concatenate(new_H0+[self.H0])
         self.X1 = np.concatenate(new_X1+[self.X1])
@@ -112,11 +117,11 @@ class SamplePool:
 
     @property
     def n_pos(self):
-        return self.X1.shape[0]
+        return self.X1.shape[0] if self.X1 is not None else 0
 
     @property
     def n_neg(self):
-        return self.X0.shape[0]
+        return self.X0.shape[0] if self.X0 is not None else 0
 
     def prune(self, theta):
         self.H0, self.X0, p0 = reject_samples(self.H0, self.X0, theta)
