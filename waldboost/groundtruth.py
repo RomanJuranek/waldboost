@@ -19,8 +19,8 @@ def bb_overlap(bb0, bb1):
     raise NotImplementedError
 
 
-def cost_matrix(bbs0, bbs1, cost=bb_distance):
-    raise NotImplementedError
+def cost_matrix(dt, gt, cost=bb_distance):
+    return np.array( [[cost(g,d) for d in bbs] for g in gt] )
 
 
 def partition(bbs, gt=None, dist_thr=0):
@@ -29,18 +29,32 @@ def partition(bbs, gt=None, dist_thr=0):
 
     If no gt is specified, partition evaluates to false.
     """
+    n_bbs = bbs.shape[0]
+
     if gt is None or gt.size == 0:
-        return np.zeros(bbs.shape[0], np.bool)
-    dist = [[bb_distance(g,d) for d in bbs] for g in gt]
-    dist = np.array(dist)
-    dist = np.min(dist, axis=0)
-    return dist < dist_thr
+        return np.zeros(n_bbs, np.bool)
+
+    n_gt, gt_cols = gt.shape
+    has_ign_flag = gt_cols == 5
+    assert gt_cols in [4,5], "GT must have 4 or 5 columns"
+
+    dist = cost_matrix(bbs, gt[...,:4], bb_distance)
+    ign_flag = gt[...,4] if has_ign_flag else np.zeros(n_bbs)
+
+    bb_dist = np.min(dist, axis=0)
+    bb_ign = ign_flag[np.argmin(dist, axis=0)]
+
+    gt_dist = np.min(dist, axis=1)
+
+    return bb_dist<dist_thr, bb_ign, gt_dist<dist_thr
 
 
 def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
     """
     Read ground truth from bbGt file.
     See Piotr's Toolbox for details
+
+    returns Nx5 matrix with columns [x,y,w,h, ignore]
     """
     gt = []
     with open(filename,"r") as f:
@@ -48,10 +62,18 @@ def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
         assert signature.startswith("% bbGt version=3"), "Wrong signature"
         for line in f:
             elms = line.split()
+            assert len(elms) == 11, "Invalid file"
             lbl = elms[0]
-            if lbl in lbls:
-                bb = tuple(map(int, elms[1:5]))
+            bb = tuple(map(int, elms[1:5]))
+            ign = bool(elms[10])
+            if lbl in lbls and not ign:
                 bb = bbox.set_aspect_ratio(bb, ar=ar, type=bbox.KEEP_WIDTH)
                 bb = bbox.resize(bb, resize)
-                gt.append(bb)
+                gt.append(bb + (0,))
+            elif lbl in ilbls or ign:
+                gt.append(bb + (1,))
+                pass
+            else:
+                # lbl not in lbls nor ilbls
+                pass
     return np.array(gt)
