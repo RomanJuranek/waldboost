@@ -83,8 +83,8 @@ class SamplePool:
                 if req_neg > 0:
                     r,c,h = predict_and_sample(chns, detector)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    dt_matched, dt_ign, _ = groundtruth.partition(dt, gt, dist_thr=20)
-                    fp = np.logical_and(~dt_matched, ~dt_ign)
+                    dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
+                    fp = np.logical_and(dt_dist>20 , ~dt_ign)
                     if np.any(fp):
                         fp = np.nonzero(fp)[0]
                         if fp.size > 500:
@@ -94,10 +94,10 @@ class SamplePool:
                         req_neg -= fp.size
 
                 if req_pos > 0:
-                    r,c,h = sample_from_bbs(chns, self.shape, gt*scale)
+                    r,c,h = sample_from_bbs(chns, self.shape, gt[:,:4]*scale)
                     dt = bbs_from_dets(r, c, self.shape, scale)
-                    dt_matched, dt_ign, _ = groundtruth.partition(dt, gt, dist_thr=5)
-                    tp = np.logical_and(dt_matched, ~dt_ign)
+                    dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
+                    tp = np.logical_and(dt_dist<5, ~dt_ign)
                     if np.any(tp):
                         tp = np.nonzero(tp)[0]
                         new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))

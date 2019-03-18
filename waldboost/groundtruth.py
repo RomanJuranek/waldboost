@@ -4,7 +4,7 @@ from random import uniform, gauss
 import bbox
 
 
-def bb_to_xys(bb, f=32):
+def bb_to_xys(bb, f=20):
     x,y,w,h = bb
     return x+0.5*w, y+0.5*h, f*math.log2(w)
 
@@ -20,36 +20,39 @@ def bb_overlap(bb0, bb1):
 
 
 def cost_matrix(dt, gt, cost=bb_distance):
-    return np.array( [[cost(g,d) for d in bbs] for g in gt] )
+    return np.array( [[cost(g,d) for d in dt] for g in gt] )
 
 
-def partition(bbs, gt=None, dist_thr=0):
+def match(dt, gt=None):
     """
-    Partition bounding boxes to two groups by proximity to a ground truth bounding boxes.
-
-    If no gt is specified, partition evaluates to false.
+    Match detections (bbs) to ground truth (gt) by proximity.
     """
-    n_bbs = bbs.shape[0]
+    has_gt = gt is not None and gt.size > 0
 
-    if gt is None or gt.size == 0:
-        return np.zeros(n_bbs, np.bool)
+    assert isinstance(dt, np.ndarray)
+
+    n_dt = dt.shape[0]
+
+    if not has_gt or n_dt == 0:
+        gt_dist = []
+        dt_dist = np.full(n_dt, np.inf)
+        dt_ign = np.zeros(n_dt, np.bool)
+        return dt_dist, dt_ign, gt_dist
 
     n_gt, gt_cols = gt.shape
     has_ign_flag = gt_cols == 5
     assert gt_cols in [4,5], "GT must have 4 or 5 columns"
-
-    dist = cost_matrix(bbs, gt[...,:4], bb_distance)
-    ign_flag = gt[...,4] if has_ign_flag else np.zeros(n_bbs)
-
-    bb_dist = np.min(dist, axis=0)
-    bb_ign = ign_flag[np.argmin(dist, axis=0)]
-
+    dist = cost_matrix(dt, gt[...,:4], bb_distance)
+    ign_flag = gt[...,4].astype(np.bool) if has_ign_flag else np.zeros(n_gt,np.bool)
+    # Todo use linear sum assignment to
+    dt_dist = np.min(dist, axis=0)
+    dt_ign = ign_flag[np.argmin(dist, axis=0)]
     gt_dist = np.min(dist, axis=1)
 
-    return bb_dist<dist_thr, bb_ign, gt_dist<dist_thr
+    return dt_dist, dt_ign, gt_dist
 
 
-def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
+def read_bbgt(filename, lbls={}, ilbls={}, ar=1, resize=1):
     """
     Read ground truth from bbGt file.
     See Piotr's Toolbox for details
@@ -61,19 +64,23 @@ def read_bbgt(filename, lbls=None, ilbls=None, ar=1, resize=1):
         signature = f.readline()
         assert signature.startswith("% bbGt version=3"), "Wrong signature"
         for line in f:
-            elms = line.split()
-            assert len(elms) == 11, "Invalid file"
+            elms = line.strip().split()
+            assert len(elms) == 12, "Invalid file"
+            #print(elms)
             lbl = elms[0]
             bb = tuple(map(int, elms[1:5]))
-            ign = bool(elms[10])
-            if lbl in lbls and not ign:
+            ign = bool(int(elms[10]))
+            if lbl in lbls:
                 bb = bbox.set_aspect_ratio(bb, ar=ar, type=bbox.KEEP_WIDTH)
                 bb = bbox.resize(bb, resize)
-                gt.append(bb + (0,))
+                gt.append(bb + (ign,))
             elif lbl in ilbls or ign:
                 gt.append(bb + (1,))
                 pass
             else:
                 # lbl not in lbls nor ilbls
                 pass
-    return np.array(gt)
+    gt = np.array(gt,"f")
+    if gt.size == 0:
+        gt = np.empty((0,5),"f")
+    return gt
