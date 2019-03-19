@@ -28,6 +28,14 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def image_to_features(X):
+    """
+    Transform X with shape (N,H,W,C) to (H*W*C,N) used for training
+    """
+    n = X.shape[0]
+    return np.moveaxis(X,0,-1).reshape(-1,n)
+
+
 def find_threshold(f0, w0, f1, w1):
     """
     Find threshold to separate two distributions
@@ -53,168 +61,163 @@ def find_threshold(f0, w0, f1, w1):
     return edges[k+1]
 
 
-def fit_decision_stump(f0, w0, f1, w1, eps=1e-4):
+def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.1):
     thr = find_threshold(f0, w0, f1, w1)
     wsum0,_ = np.histogram((f0<thr).astype(np.uint8), bins=[0,1,2], weights=w0)
     wsum1,_ = np.histogram((f1<thr).astype(np.uint8), bins=[0,1,2], weights=w1)
     hs = 0.5 * np.log((wsum1+eps) / (wsum0+eps))
     Z = 2 * np.sqrt(wsum0 * wsum1).sum()
+    if min_split_ratio is not None:
+        min_n = (f0.size + f1.size) * min_split_ratio
+        if ((f0<thr).sum() + (f1<thr).sum()) < min_n or ((f0>=thr).sum() + (f1>=thr).sum()) < min_n:
+            Z = np.inf # Penalize divergent solutions
     return (thr, hs), Z
 
+
+def weights(H):
+    return np.exp(H) / H.size / 2
 
 def normalized_weights(W0, W1):
     w = W0.sum() + W1.sum()
     return W0/w, W1/w
 
 
-class DecisionStump:
-    """
-    Simple, threshold-based classifier.
-    It optimizes thresholds for all features, picks the one
-    with minimal error and trains response table (2 items).
-    It is represented by feature id, threshold value and the response table.
-
-    DecisionStump.fit fits the classifier and returns
-    new instance. eval returns responses for given samples.
-
-    Example:
-    c = DecisionStump.fit(X0, W0, X1, W1)
-    Y0 = c.eval(X0)
-    Y1 = c.eval(X1)
-    """
-    def __init__(self, ftr_idx, thr, hs, shape=None):
-        self.ftr_idx = ftr_idx
-        self.thr = thr
-        self.hs = hs
+class DStump:
+    def __init__(self, shape):
+        self.shape = shape
+        self.ftr_idx = None
         self.ftr = None
-        if shape is not None:
-            self.ftr = np.unravel_index(ftr_idx, shape)
-        logger.debug(f"DStump {ftr_idx}, {thr}, {hs.tolist()}, {self.ftr}")
-
-    @classmethod
-    def fit(cls, X0, W0, X1, W1, shape):
-        min_err = None
-        weak = None
+        self.thr = None
+        self.predictions = None
+        self.err = None
+    def set_params(self, ftr_idx, thr, predictions, err):
+        self.ftr_idx = ftr_idx
+        self.ftr = np.unravel_index(self.ftr_idx, self.shape)
+        self.thr = thr
+        self.predictions = predictions
+        self.err = err
+    def fit(self, X0, W0, X1, W1):
         w0,w1 = normalized_weights(W0, W1)
-        for ftr,(x0,x1) in enumerate(zip(X0,X1)):
+        for ftr_idx,(x0,x1) in enumerate(zip(X0,X1)):
             (thr, hs), err = fit_decision_stump(x0,w0,x1,w1)
-            if min_err is None or err < min_err:
-                weak = (ftr, thr, hs)
-                min_err = err
-        ftr, thr, hs = weak
-        return cls(ftr, thr, hs, shape)
-
-    def eval(self, X):
-        bin = self.eval_bin(X)
-        return self.hs[bin]
-
-    def eval_bin(self, X):
+            if self.err is None or err < self.err:
+                self.set_params(ftr_idx, thr, hs, err)
+        return self
+    def predict(self, X):
+        assert self.is_trained, "Run fit() first"
+        return self.predictions[self._predict_bin(X)]
+    def predict_on_image(self, X, rs, cs):
+        assert self.is_trained, "Run fit() first"
+        return self.predictions[self._predict_bin_on_image(X,rs,cs)]
+    def _predict_bin(self, X):
+        assert self.is_trained, "Run fit() first"
         return (X[self.ftr_idx,...] < self.thr).astype(np.uint8)
-
-    def eval_bin_on_image(self, X, rs, cs):
-        r0, c0, ch0 = self.ftr
-        chs = np.full_like(rs, ch0)
-        return (X[rs+r0,cs+c0,chs] < self.thr).astype(np.uint8)
-
-    def eval_on_image(self, X, rs, cs):
-        bin = self.eval_bin_on_image(X, rs, cs)
-        return self.hs[bin]
-
+    def _predict_bin_on_image(self, X, rs, cs):
+        assert self.is_trained, "Run fit() first"
+        r, c, ch = self.ftr
+        chs = np.full_like(rs, ch)
+        return (X[rs+r,cs+c,chs]<self.thr).astype(np.uint8)
     def as_dict(self):
-        return {"ftr": list(map(int,self.ftr)), "thr": int(self.thr), "predictions": list(map(float,self.hs.tolist())) }
-
-
-class DecisionTree:
-    """
-    Decision tree weak classifier.
-    Each node is DecisionStump optimized on a subset of data enering the node.
-
-    DecisionTree.fit(...) fits the classifier and returns initialized instance
-    with eval() method.
-
-    Example:
-    c = DecisionTree.fit(X0, W0, X1, W1)
-    Y0 = c.eval(X0)
-    Y1 = c.eval(X1)
-    """
-    def __init__(self, root):
-        self.root = root
-
-    @staticmethod
-    def fit_node(X0, W0, X1, W1, depth, shape):
-        node = DecisionStump.fit(X0, W0, X1, W1, shape)
-        b0 = node.eval_bin(X0)
-        b1 = node.eval_bin(X1)
-        logger.debug(f"{(b1==0).sum() + (b0==0).sum()} -> left; {(b1==1).sum() + (b0==1).sum()} -> right")
-        if depth > 1:
-            left =  DecisionTree.fit_node(X0[...,b0==0], W0[b0==0], X1[...,b1==0], W1[b1==0], depth-1, shape)
-            right = DecisionTree.fit_node(X0[...,b0==1], W0[b0==1], X1[...,b1==1], W1[b1==1], depth-1, shape)
+        pass
+    @property
+    def is_trained(self):
+        return self.ftr_idx is not None
+    def __repr__(self):
+        if self.is_trained:
+            return f"{self.__class__} shape={self.shape}, ftr_idx={self.ftr_idx} {self.ftr}, thr={self.thr:0.3f}, preds={self.predictions}, err={self.err:0.2f}"
         else:
-            left = right = None
-        return node, left, right
+            return f"{self.__class__} [uninitialized]"
 
-    @classmethod
-    def fit(cls, X0, W0, X1, W1, depth=2, shape=None):
-        root_node = cls.fit_node(X0, W0, X1, W1, depth, shape)
-        return cls(root_node)
 
-    def eval(self, X):
-        def eval_node(X, node):
-            root, left, right = node
-            bin = root.eval_bin(X)
-            if left is None:
-                assert right is None, "Inconsistent tree"
-                return root.hs[bin]
-            h0 = eval_node(X[...,bin==0], left)
-            h1 = eval_node(X[...,bin==1], right)
-            h = np.empty(X.shape[1], "f")
-            h[bin==0] = h0
-            h[bin==1] = h1
-            return h
-        return eval_node(X, self.root)
+class DTree:
+    """
+    """
+    def __init__(self, shape, depth=2):
+        self.shape = shape
+        self.depth = depth
+        self.nodes = None
+        self.leaf = None
+    def fit(self, X0, W0, X1, W1):
+        if self.is_trained:
+            logger.warning("Discarding trained tree")
+        n_nodes = (2**self.depth-1)
+        self.nodes = [None] * n_nodes
+        self.leaf = [None] * n_nodes
+        def fit_node(X0, W0, X1, W1, level, position):
+            print(f"fitting node at level {level}, to position {position}")
+            node = DStump(self.shape).fit(X0, W0, X1, W1)
+            self.nodes[position-1] = node
+            self.leaf[position-1] = level >= self.depth
+            if level < self.depth:
+                b0 = node._predict_bin(X0)
+                b1 = node._predict_bin(X1)
+                logger.debug(f"{(b1==0).sum() + (b0==0).sum()} -> left; {(b1==1).sum() + (b0==1).sum()} -> right")
+                fit_node(X0[...,b0==0], W0[b0==0], X1[...,b1==0], W1[b1==0], level+1, position=2*position)
+                fit_node(X0[...,b0==1], W0[b0==1], X1[...,b1==1], W1[b1==1], level+1, position=2*position+1)
+        fit_node(X0, W0, X1, W1, level=1, position=1)
+        return self
+    def predict(self, X):
+        def predict_node(X, node_id):
+            if self.leaf[node_id-1]:
+                return self.nodes[node_id-1].predict(X)
+            else:
+                bin = self.nodes[node_id-1]._predict_bin(X)
+                h = np.empty(X.shape[1], "f")
+                h[bin==0] = predict_node(X[...,bin==0], 2*node_id)
+                h[bin==1] = predict_node(X[...,bin==1], 2*node_id+1)
+                return h
+        assert self.is_trained, "Run fit() first"
+        return predict_node(X, 1)
+    def predict_on_image(self, X, rs, cs):
+        def predict_node(X, rs, cs, node_id):
+            if self.leaf[node_id-1]:
+                return self.nodes[node_id-1].predict_on_image(X, rs, cs)
+            else:
+                bin = self.nodes[node_id-1]._predict_bin_on_image(X, rs, cs)
+                h = np.empty(rs.size, np.float32)
+                h[bin==0] = predict_node(X, rs[bin==0], cs[bin==0], 2*node_id)
+                h[bin==1] = predict_node(X, rs[bin==1], cs[bin==1], 2*node_id+1)
+                return h
+        assert self.is_trained, "Run fit() first"
+        return predict_node(X, rs, cs, 1)
+    @property
+    def is_trained(self):
+        return self.nodes is not None
+    # def __repr__(self):
+    #     pass
 
-    def eval_on_image(self, X, rs, cs):
-        def eval_node(X, rs, cs, node):
-            root, left, right = node
-            bin = root.eval_bin_on_image(X, rs, cs)
-            if left is None:
-                assert right is None
-                return root.hs[bin]
-            response = np.empty(rs.size, np.float32)
-            response[bin==0] = eval_node(X, rs[bin==0], cs[bin==0], left)
-            response[bin==1] = eval_node(X, rs[bin==1], cs[bin==1], right)
-            return response
-        return eval_node(X, rs, cs, self.root)
 
-    def as_dict(self):
-        def node_dict(node):
-            root, left, right = node
-            d = [ root.as_dict() ]
-            if left is not None:
-                d.append(node_dict(left))
-                d.append(node_dict(right))
-            return d
-        return node_dict(self.root)
+class Detector:
+    def __init__(self):
+        model = {}
+
+    def fit(self, pool, alpha, T):
+        return self
+
+    def predict():
+        pass
+
+    def model():
+        pass
+
+    def save():
+        pass
 
 
 def fit_stage(
     X0, H0, P0, X1, H1, P1,
-    wh=DecisionStump,
     alpha=0.1, theta=None,
-    shape=None):
+    wh=DStump, **kwargs):
     """
     Warning:
     The function mutates values in H0 and H1.
     """
+    W0 = weights(H0)
+    W1 = weights(-H1)
 
-    N0 = X0.shape[0]
-    N1 = X1.shape[0]
-    W0 = np.exp( H0) / N0 / 2
-    W1 = np.exp(-H1) / N1 / 2
-
-    weak = wh.fit(X0, W0, X1, W1, shape=shape)
-    h0 = weak.eval(X0)
-    h1 = weak.eval(X1)
+    weak = wh(**kwargs).fit(X0, W0, X1, W1)
+    h0 = weak.predict(X0)
+    h1 = weak.predict(X1)
     logger.debug(f"Update H0 {H0.shape} with {h0.shape}")
     H0 += h0
     logger.debug(f"Update H1 {H1.shape} with {h1.shape}")
@@ -256,7 +259,7 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
     return theta
 
 
-def fit_model(model, pool, alpha=0.1, T=1024, wh=DecisionStump):
+def fit_model(model, pool, alpha=0.1, T=1024, wh=DStump, **kwargs):
     """
     """
     shape = model["opts"]["shape"]
@@ -268,11 +271,11 @@ def fit_model(model, pool, alpha=0.1, T=1024, wh=DecisionStump):
         X1,H1,P1 = pool.get_positive()
         X0,H0,P0 = pool.get_negative()
 
-        F0 = np.moveaxis(X0,0,-1).reshape(-1,H0.size) # Transform (N,H,W) -> (HxW,N)
-        F1 = np.moveaxis(X1,0,-1).reshape(-1,H1.size) # Transform (N,H,W) -> (HxW,N)
+        F0 = image_to_features(X0)
+        F1 = image_to_features(X1)
 
-        theta = None if t%8==7 and t<64 else -np.inf
-        weak, theta = fit_stage(F0, H0, P0, F1, H1, P1, wh=wh, alpha=alpha, theta=theta, shape=shape)
+        theta = None if t%4==3 and t<=256 else -np.inf
+        weak, theta = fit_stage(F0, H0, P0, F1, H1, P1, wh=wh, alpha=alpha, theta=theta, **kwargs)
 
         # Check negative probability induced by theta
         p = np.sum(H0 > theta) / H0.size

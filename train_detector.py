@@ -73,7 +73,7 @@ model = {
 
 training_images = bbgt_image_generator(img_fs, gt_fs)
 tr_samples = samples.SamplePool(training_images, shape, n_pos=n_pos, n_neg=n_neg)
-training.fit_model(model, tr_samples, alpha, T, wh=training.DecisionTree)
+training.fit_model(model, tr_samples, alpha, T, wh=training.DTree, shape=shape, depth=4)
 save_cache(model, name+".pkl")
 
 logger.info("Updating training set before training verifier")

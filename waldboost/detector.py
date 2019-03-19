@@ -17,7 +17,7 @@ def forward(chns, detector):
     hs = np.zeros_like(rs, np.float32)
 
     for weak, theta in detector["classifier"]:
-        hs += weak.eval_on_image(chns, rs, cs)
+        hs += weak.predict_on_image(chns, rs, cs)
         if theta == -np.inf:
             continue
         mask = hs >= theta
