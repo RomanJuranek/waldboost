@@ -11,7 +11,7 @@ def forward(chns, detector):
     m,n,ch_cls = detector["opts"]["shape"]
     assert ch_image == ch_cls, "Invalid shape"
 
-    idx = np.arange(np.int32(max(u-m,0)*max(v-n,0)))
+    idx = np.arange(max(u-m,0)*max(v-n,0), dtype=np.int32)
     rs = idx % (u-m)
     cs = idx // (u-m)
     hs = np.zeros_like(rs, np.float32)
@@ -32,7 +32,6 @@ def detect(image, detector, verifier=None):
     from .samples import gather_samples
 
     shape = m,n,_ = detector["opts"]["shape"]
-    #ftr, hs, thr, theta = np_classifier(detector["classifier"])
 
     X = []
     R = []
@@ -42,44 +41,27 @@ def detect(image, detector, verifier=None):
 
     # Loop over the channel pyramid and gather results
     for chns, scale in channel_pyramid(image, detector["opts"]):
-        #r, c, h = forward(chns, m, n, ftr, hs, thr, theta)
         r, c, h = forward(chns, detector)
-        mask = h > -1
-        r = r[mask]
-        c = c[mask]
-        h = h[mask]
-        if r.size > 0:
-            if verifier is not None:
-                X.append( gather_samples(chns, r, c, shape ))
-            R.append( r )
-            C.append( c )
-            S.append( [scale]*r.size )
-            H.append( h )
-
-    if not R:
-        return np.array([]), np.array([])
+        if verifier is not None:
+            X.append(gather_samples(chns, r, c, shape))
+        R.append( r )
+        C.append( c )
+        S.append( [scale]*r.size )
+        H.append( h )
 
     R = np.concatenate(R)
     C = np.concatenate(C)
     S = np.concatenate(S)
     H = np.concatenate(H)
 
-    print("R", R.shape)
-    print("C", C.shape)
-    print("S", S.shape)
-    print("H", H.shape)
-
-    if verifier is not None:
-        X = np.concatenate(X)
+    if verifier is not None and R.size > 0:
+        X = np.concatenate(X, axis=0)
         print("X", X.shape)
-        Y = verifier.predict([X, H])
-        mask = np.nonzero(Y > 0.1)[0]
-        R = R[mask]
-        C = C[mask]
-        S = S[mask]
-        H = H[mask]
+        confidence = verifier.predict([X, H])
+    else:
+        confidence = np.ones_like(H)
 
-    return bbs_from_dets(R, C, shape, S), H
+    return bbs_from_dets(R, C, shape, S), H, confidence[...,0]
 
 
 def bbs_from_dets(r, c, shape, scale):

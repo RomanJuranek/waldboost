@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+import cv2
 
 from . import groundtruth
 from .detector import forward, bbs_from_dets
@@ -29,6 +30,8 @@ def predict_and_sample(chns, detector):
 def gather_samples(chns, rs, cs, shape):
     #u,v = chns.shape
     m,n,_ = shape
+    if rs.size == 0:
+        return np.empty((0,)+shape, dtype=chns.dtype)
     X = [ chns[r:r+m,c:c+n,...] for r,c in zip(rs, cs) ]
     return np.array(X)
 
@@ -79,19 +82,31 @@ class SamplePool:
         while True:
             self.logger.debug(f"Require {req_neg} negative samples and {req_pos} positive samples")
             im, gt = next(self.generator)
+            I = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
             for chns, scale in channel_pyramid(im, detector["opts"]):
                 if req_neg > 0:
                     r,c,h = predict_and_sample(chns, detector)
                     dt = bbs_from_dets(r, c, self.shape, scale)
                     dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-                    fp = np.logical_and(dt_dist>20 , ~dt_ign)
+                    fp = dt_dist > 20
+                    dt_ign = np.logical_and(dt_ign, ~   fp)
                     if np.any(fp):
-                        fp = np.nonzero(fp)[0]
-                        if fp.size > 500:
-                            fp = np.random.choice(fp, 500)
-                        new_X0.append(gather_samples(chns, r[fp], c[fp], self.shape))
-                        new_H0.append(h[fp])
-                        req_neg -= fp.size
+                        fp_idx = np.nonzero(fp)[0]
+                        if fp_idx.size > 500:
+                            fp_idx = np.random.choice(fp_idx, 500)
+                        new_X0.append(gather_samples(chns, r[fp_idx], c[fp_idx], self.shape))
+                        new_H0.append(h[fp_idx])
+                        req_neg -= fp_idx.size
+
+                    for bb, ign, is_fp in zip(dt, dt_ign, fp):
+                        x,y,w,h = bb.astype(int)
+                        if ign:
+                            c = (0,0,0)
+                        elif is_fp:
+                            c = (0,255,0)
+                        else:
+                            c = (0,0,255)
+                        cv2.rectangle(I, (x,y),(x+w,y+h), c, 1)
 
                 if req_pos > 0:
                     r,c,h = sample_from_bbs(chns, self.shape, gt[:,:4]*scale)
@@ -103,6 +118,17 @@ class SamplePool:
                         new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))
                         new_H1.append(h[tp])
                         req_pos -= tp.size
+
+            for bb in gt:
+                x,y,w,h,ign = bb.astype(int)
+                if ign:
+                    c = (0,0,0)
+                else:
+                    c = (255,0,0)
+                cv2.rectangle(I, (x,y),(x+w,y+h), c, 4)
+
+            cv2.imshow("Hard neg. mining", I)
+            cv2.waitKey(1)
 
             if req_neg <= 0 and req_pos <= 0:
                 break

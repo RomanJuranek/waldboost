@@ -61,7 +61,7 @@ def channel_pyramid(image, opts):
     smooth = pyr_opts["smooth"]
     channels = pyr_opts["channels"]
     target_dtype = pyr_opts["target_dtype"]
-    
+
     assert shrink in [1,2,3,4], "Shrink factor must be integer 1 <= shrink <= 4"
 
     base_image = image
@@ -95,6 +95,6 @@ def channel_pyramid(image, opts):
 
             # logger.debug(f"{chns.shape}, {chns.dtype}")
 
-            yield chns, real_scale/shrink
+            yield np.atleast_3d(chns), real_scale/shrink
 
         base_image = block_reduce(base_image, (2,2), np.min).astype(image.dtype)

@@ -1,3 +1,21 @@
+""" CNN Verification
+
+Verification model inputs are image features and detector response. Based on
+the image features, model predicts the value that is added.
+
+p(X,H) = sigmoid(model(X) + H)
+
+The model is trained to minimize binary cross entropy of p(X,H) which is 0 for
+negative samples and 1 for positive samples.
+
+Example:
+M = verification.model(input_shape=X0.shape[1:])
+verification.train(M, X0, H0, X1, H1, batch_size=64, epochs=10)
+
+bbs, h, p = detect(image, model, M)
+"""
+
+
 import numpy as np
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, Dense, Concatenate, Add, Dropout, Activation, BatchNormalization, Flatten
@@ -33,13 +51,13 @@ def model(input_shape):
     return Model(inputs=[img, score], outputs=x)
 
 
-def train(M, X0, H0, X1, H1, batch_size=64):
+def train(M, X0, H0, X1, H1, epochs=10, batch_size=64):
     b = batch_size // 2
     M.compile(loss="binary_crossentropy", optimizer="adam")
     N0,N1 = X0.shape[0], X1.shape[0]
     Y = np.array([0]*b + [1]*b, dtype="f")
-    for e in range(2):
-        print(f"Epoch {e}")
+    for e in range(1,epochs+1):
+        print(f"Epoch {e}/{epochs}")
         loss = []
         for _ in range(1000):
             i0 = np.random.choice(N0, b)

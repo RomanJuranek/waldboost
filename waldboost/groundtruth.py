@@ -15,17 +15,17 @@ def bb_distance(bb0, bb1):
     return math.sqrt((u-a)**2 + (v-b)**2 + (w-c)**2)
 
 
-def bb_overlap(bb0, bb1):
+def bb_overlap_distance(bb0, bb1):
     raise NotImplementedError
 
 
-def cost_matrix(dt, gt, cost=bb_distance):
-    return np.array( [[cost(g,d) for d in dt] for g in gt] )
+def distance_matrix(dt, gt, metric=bb_distance):
+    return np.array( [[metric(g,d) for d in dt] for g in gt] )
 
 
-def match(dt, gt=None):
+def match(dt, gt=None, allow_multiple=True, metric=bb_distance, default_dist=np.inf):
     """
-    Match detections (bbs) to ground truth (gt) by proximity.
+    Match detections (dt) to ground truth (gt) by using metric.
     """
     has_gt = gt is not None and gt.size > 0
 
@@ -42,12 +42,15 @@ def match(dt, gt=None):
     n_gt, gt_cols = gt.shape
     has_ign_flag = gt_cols == 5
     assert gt_cols in [4,5], "GT must have 4 or 5 columns"
-    dist = cost_matrix(dt, gt[...,:4], bb_distance)
+    dist = distance_matrix(dt, gt[...,:4], metric=metric)
     ign_flag = gt[...,4].astype(np.bool) if has_ign_flag else np.zeros(n_gt,np.bool)
-    # Todo use linear sum assignment to
-    dt_dist = np.min(dist, axis=0)
-    dt_ign = ign_flag[np.argmin(dist, axis=0)]
-    gt_dist = np.min(dist, axis=1)
+    # Todo use linear sum assignment when allow_multiple is false - distance of unassigned dt will be set to default_dist
+    if allow_multiple:
+        dt_dist = np.min(dist, axis=0)
+        dt_ign = ign_flag[np.argmin(dist, axis=0)]
+        gt_dist = np.min(dist, axis=1)
+    else:
+        raise NotImplementedError
 
     return dt_dist, dt_ign, gt_dist
 
