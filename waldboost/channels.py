@@ -1,14 +1,11 @@
 import logging
 import numpy as np
 from skimage.measure import block_reduce
+from skimage.transform import resize
 from scipy.ndimage import convolve1d
-import cv2
 
 
 logger = logging.getLogger(__name__)
-
-
-deriv_H = np.array((-1,0,1), np.float) / 2
 
 
 def triangle_kernel(n):
@@ -17,8 +14,9 @@ def triangle_kernel(n):
 
 
 def gradients(image):
-    gx = cv2.filter2D(image, cv2.CV_32F, deriv_H[None,:])
-    gy = cv2.filter2D(image, cv2.CV_32F, deriv_H[:,None])
+    D = np.array( [1,0,-1], "f")
+    gy = convolve1d(image, D, axis=0)
+    gx = convolve1d(image, D, axis=1)
     return gx, gy
 
 
@@ -30,10 +28,10 @@ def separable_convolve(image, kernel):
 
 def grad_mag(image, norm=None, eps=1e-3):
     gx, gy = gradients(image)
-    mag = cv2.magnitude(gx, gy)
-    if norm is not None:
+    mag = np.sqrt(gx**2 + gy**2)
+    if norm is not None and norm > 1:
         H = triangle_kernel(norm)
-        norm = cv2.sepFilter2D(mag, cv2.CV_32F, H, H)
+        norm = separable_convolve(mag, H)
         mag /= norm + eps
     return mag[...,None]
 
@@ -78,7 +76,7 @@ def channel_pyramid(image, opts):
                 return
 
             real_scale = nw / image.shape[1]
-            im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)
+            im = (255*resize(base_image, (nh, nw))).astype("u1")
 
             if channels:
                 chns = [ func(im, *pfunc) for func,pfunc in channels ]
@@ -90,10 +88,8 @@ def channel_pyramid(image, opts):
                 chns = block_reduce(chns, (shrink,shrink,1), np.mean).astype(target_dtype)
 
             if smooth > 0:
-                H = triangle_kernel()
-                chns = convolve1d(convolve1d(chns,H,axis=0),H,axis=1)
-
-            # logger.debug(f"{chns.shape}, {chns.dtype}")
+                H = triangle_kernel(smooth)
+                chns = separable_convolve(chns, H)
 
             yield np.atleast_3d(chns), real_scale/shrink
 
