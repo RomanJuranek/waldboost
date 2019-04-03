@@ -7,12 +7,16 @@ import numpy as np
 from scipy.ndimage import convolve1d
 
 
-# def bank_pattern(shape, n_banks=4):
-#     pass np.arange(np.prod(shape)).reshape(shape) % n_banks
-#
-#
-# def bank_id(idx, n_banks=4):
-#     return idx % n_banks
+def bank_pattern(shape, block_shape=(2,2)):
+    assert len(shape) in [2,3], "Shape must be (H,W) or (H,W,C)"
+    if len(shape) == 2:
+        shape += (1,)
+    b = np.arange(np.prod(block_shape)).reshape(block_shape)
+    n = np.ceil(np.array(shape[:2]) / block_shape)
+    banks = np.tile(b, n.astype("i").tolist())
+    u,v,c = shape
+    banks = np.atleast_3d(np.dstack([banks]*c))
+    return banks[:u,:v,...]
 
 
 def grad_hist_4(image):
