@@ -22,7 +22,23 @@ from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, Dense, Concatenate
 from tensorflow.keras.models import Model
 
 
-def model(input_shape):
+def model_dense(input_shape):
+    """
+    p(x,h) = sigmoid(Wx + h)
+    """
+    img = Input(shape = input_shape)
+    score = Input([1])
+    x = Flatten()(img)
+    x = BatchNormalization()(x)
+    x = Dropout(0.1)(x)
+    x = Dense(16, activation="linear", use_bias=True)(x)
+    x = Dense(1, activation="linear", use_bias=False)(x)
+    x = Add()([x, score])
+    x = Activation("sigmoid")(x)
+    return Model(inputs=[img, score], outputs=x)
+
+
+def model_cnn(input_shape):
     img = Input(shape = input_shape)
     score = Input([1])
 
@@ -59,7 +75,7 @@ def train(M, X0, H0, X1, H1, epochs=10, batch_size=64):
     for e in range(1,epochs+1):
         print(f"Epoch {e}/{epochs}")
         loss = []
-        for _ in range(1000):
+        for _ in range(2000):
             i0 = np.random.choice(N0, b)
             i1 = np.random.choice(N1, b)
             X = [

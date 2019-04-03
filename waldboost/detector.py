@@ -1,6 +1,7 @@
 """
 """
 
+
 import numpy as np
 import cv2
 from .channels import channel_pyramid
@@ -56,12 +57,12 @@ def detect(image, detector, verifier=None):
 
     if verifier is not None and R.size > 0:
         X = np.concatenate(X, axis=0)
-        print("X", X.shape)
         confidence = verifier.predict([X, H])
+        confidence = confidence[...,0]
     else:
         confidence = np.ones_like(H)
 
-    return bbs_from_dets(R, C, shape, S), H, confidence[...,0]
+    return bbs_from_dets(R, C, shape, S), H, confidence
 
 
 def bbs_from_dets(r, c, shape, scale):

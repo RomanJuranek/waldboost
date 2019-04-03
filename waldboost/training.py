@@ -132,9 +132,10 @@ class DStump:
 class DTree:
     """
     """
-    def __init__(self, shape, depth=2):
+    def __init__(self, shape, depth=2, banks=None):
         self.shape = shape
         self.depth = depth
+        self.banks = banks
         self.nodes = None
         self.leaf = None
     def fit(self, X0, W0, X1, W1):
@@ -144,7 +145,7 @@ class DTree:
         self.nodes = [None] * n_nodes
         self.leaf = [None] * n_nodes
         def fit_node(X0, W0, X1, W1, level, position):
-            print(f"fitting node at level {level}, to position {position}")
+            #print(f"fitting node at level {level}, to position {position}")
             node = DStump(self.shape).fit(X0, W0, X1, W1)
             self.nodes[position-1] = node
             self.leaf[position-1] = level >= self.depth
@@ -187,20 +188,14 @@ class DTree:
     #     pass
 
 
-class Detector:
+class Model:
     def __init__(self):
-        model = {}
-
-    def fit(self, pool, alpha, T):
-        return self
-
-    def predict():
         pass
-
-    def model():
+    def fit(self):
         pass
-
-    def save():
+    def predict(self, X):
+        pass
+    def classifier(self):
         pass
 
 
@@ -215,12 +210,15 @@ def fit_stage(
     W0 = weights(H0)
     W1 = weights(-H1)
 
-    weak = wh(**kwargs).fit(X0, W0, X1, W1)
+    idx0 = np.random.choice(W0.size, 4000, p=W0/W0.sum())
+    idx1 = np.random.choice(W1.size, 4000, p=W1/W1.sum())
+    weak = wh(**kwargs).fit(X0[...,idx0], W0[idx0], X1[...,idx1], W1[idx1])
+
     h0 = weak.predict(X0)
     h1 = weak.predict(X1)
-    logger.debug(f"Update H0 {H0.shape} with {h0.shape}")
+    #logger.debug(f"Update H0 {H0.shape} with {h0.shape}")
     H0 += h0
-    logger.debug(f"Update H1 {H1.shape} with {h1.shape}")
+    #logger.debug(f"Update H1 {H1.shape} with {h1.shape}")
     H1 += h1
 
     if theta is None:
@@ -274,7 +272,8 @@ def fit_model(model, pool, alpha=0.1, T=1024, wh=DStump, **kwargs):
         F0 = image_to_features(X0)
         F1 = image_to_features(X1)
 
-        theta = None if t%4==3 and t<=256 else -np.inf
+        #theta = None if t%2==1 and t<=128 else -np.inf
+        theta = None if t>=1 and t<=128 else -np.inf
         weak, theta = fit_stage(F0, H0, P0, F1, H1, P1, wh=wh, alpha=alpha, theta=theta, **kwargs)
 
         # Check negative probability induced by theta

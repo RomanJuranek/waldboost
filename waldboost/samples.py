@@ -70,6 +70,9 @@ class SamplePool:
         if detector["classifier"]:
             req_pos = 0
 
+        self.logger.info(f"Pool size: {self.n_pos} positive, {self.n_neg} negative;")
+        self.logger.info(f"Require: {req_pos} positives, {req_neg} negatives")
+
         if req_neg <= 0 and req_pos <= 0:
             self.logger.debug("Nothing to update (pool is full)")
             return
@@ -80,7 +83,6 @@ class SamplePool:
         new_H1 = []
 
         while True:
-            self.logger.debug(f"Require {req_neg} negative samples and {req_pos} positive samples")
             im, gt = next(self.generator)
             I = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
             for chns, scale in channel_pyramid(im, detector["opts"]):
@@ -88,12 +90,12 @@ class SamplePool:
                     r,c,h = predict_and_sample(chns, detector)
                     dt = bbs_from_dets(r, c, self.shape, scale)
                     dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-                    fp = dt_dist > 20
-                    dt_ign = np.logical_and(dt_ign, ~   fp)
+                    fp = dt_dist > 0.5
+                    dt_ign = np.logical_and(dt_ign, ~fp)
                     if np.any(fp):
                         fp_idx = np.nonzero(fp)[0]
-                        if fp_idx.size > 500:
-                            fp_idx = np.random.choice(fp_idx, 500)
+                        if fp_idx.size > 50:
+                            fp_idx = np.random.choice(fp_idx, 50)
                         new_X0.append(gather_samples(chns, r[fp_idx], c[fp_idx], self.shape))
                         new_H0.append(h[fp_idx])
                         req_neg -= fp_idx.size
@@ -112,12 +114,13 @@ class SamplePool:
                     r,c,h = sample_from_bbs(chns, self.shape, gt[:,:4]*scale)
                     dt = bbs_from_dets(r, c, self.shape, scale)
                     dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-                    tp = np.logical_and(dt_dist<5, ~dt_ign)
+                    tp = np.logical_and(dt_dist<0.3, ~dt_ign)
                     if np.any(tp):
                         tp = np.nonzero(tp)[0]
                         new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))
                         new_H1.append(h[tp])
                         req_pos -= tp.size
+                        logging.debug(f"Added {tp.size} pos. samples")
 
             for bb in gt:
                 x,y,w,h,ign = bb.astype(int)
