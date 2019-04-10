@@ -93,4 +93,4 @@ def channel_pyramid(image, opts):
 
             yield np.atleast_3d(chns), real_scale/shrink
 
-        base_image = block_reduce(base_image, (2,2), np.min).astype(image.dtype)
+        base_image = block_reduce(base_image, (2,2), np.mean).astype(image.dtype)
