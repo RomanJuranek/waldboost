@@ -7,9 +7,9 @@ import cv2
 from .channels import channel_pyramid
 
 
-def forward(chns, detector):
+def forward(chns, shape, classifier):
     u,v,ch_image = chns.shape
-    m,n,ch_cls = detector["opts"]["shape"]
+    m,n,ch_cls = shape
     assert ch_image == ch_cls, "Invalid shape"
 
     idx = np.arange(max(u-m,0)*max(v-n,0), dtype=np.int32)
@@ -17,7 +17,7 @@ def forward(chns, detector):
     cs = idx // (u-m)
     hs = np.zeros_like(rs, np.float32)
 
-    for weak, theta in detector["classifier"]:
+    for weak, theta in classifier:
         hs += weak.predict_on_image(chns, rs, cs)
         if theta == -np.inf:
             continue
@@ -42,7 +42,7 @@ def detect(image, detector, verifier=None):
 
     # Loop over the channel pyramid and gather results
     for chns, scale in channel_pyramid(image, detector["opts"]):
-        r, c, h = forward(chns, detector)
+        r, c, h = forward(chns, shape, detector["classifier"])
         if verifier is not None:
             X.append(gather_samples(chns, r, c, shape))
         R.append( r )

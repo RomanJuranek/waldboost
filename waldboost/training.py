@@ -23,6 +23,7 @@ waldboost.training.fit_model
 
 import logging
 import numpy as np
+from .samples import SamplePool
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def find_threshold(f0, w0, f1, w1):
     return edges[k+1]
 
 
-def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.1):
+def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.05):
     thr = find_threshold(f0, w0, f1, w1)
     wsum0,_ = np.histogram((f0<thr).astype(np.uint8), bins=[0,1,2], weights=w0)
     wsum1,_ = np.histogram((f1<thr).astype(np.uint8), bins=[0,1,2], weights=w1)
@@ -72,14 +73,6 @@ def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.1):
         if ((f0<thr).sum() + (f1<thr).sum()) < min_n or ((f0>=thr).sum() + (f1>=thr).sum()) < min_n:
             Z = np.inf # Penalize divergent solutions
     return (thr, hs), Z
-
-
-def weights(H):
-    return np.exp(H) / H.size / 2
-
-def normalized_weights(W0, W1):
-    w = W0.sum() + W1.sum()
-    return W0/w, W1/w
 
 
 class DStump:
@@ -96,12 +89,19 @@ class DStump:
         self.thr = thr
         self.predictions = predictions
         self.err = err
-    def fit(self, X0, W0, X1, W1):
+    def fit(self, X0, W0, X1, W1, quantizer=None):
+        #print("Q:", quantizer)
         w0,w1 = normalized_weights(W0, W1)
         for ftr_idx,(x0,x1) in enumerate(zip(X0,X1)):
             (thr, hs), err = fit_decision_stump(x0,w0,x1,w1)
             if self.err is None or err < self.err:
+                #logging.debug(err)
                 self.set_params(ftr_idx, thr, hs, err)
+        if quantizer is not None:
+            q,q_idx = quantizer(self.predictions)
+            #logging.debug(f"{self.predictions} -> {q} ({q_idx})")
+            self.predictions = q
+            self.predictions_int = q_idx
         return self
     def predict(self, X):
         assert self.is_trained, "Run fit() first"
@@ -118,13 +118,17 @@ class DStump:
         chs = np.full_like(rs, ch)
         return (X[rs+r,cs+c,chs]<self.thr).astype(np.uint8)
     def as_dict(self):
-        pass
+        return {
+            "ftr": list(map(int, self.ftr)),
+            "thr": float(self.thr),
+            "pred": self.predictions.astype("f").tolist(),
+        }
     @property
     def is_trained(self):
         return self.ftr_idx is not None
     def __repr__(self):
         if self.is_trained:
-            return f"{self.__class__} shape={self.shape}, ftr_idx={self.ftr_idx} {self.ftr}, thr={self.thr:0.3f}, preds={self.predictions}, err={self.err:0.2f}"
+            return f"{self.__class__} shape={self.shape}, ftr_idx={self.ftr_idx} {self.ftr}, thr={self.thr:0.3f}, preds={self.predictions} ({self.predictions.dtype}), err={self.err:0.2f}"
         else:
             return f"{self.__class__} [uninitialized]"
 
@@ -138,7 +142,7 @@ class DTree:
         self.banks = banks
         self.nodes = None
         self.leaf = None
-    def fit(self, X0, W0, X1, W1):
+    def fit(self, X0, W0, X1, W1, quantizer=None):
         if self.is_trained:
             logger.warning("Discarding trained tree")
         n_nodes = (2**self.depth-1)
@@ -146,7 +150,7 @@ class DTree:
         self.leaf = [None] * n_nodes
         def fit_node(X0, W0, X1, W1, level, position):
             #print(f"fitting node at level {level}, to position {position}")
-            node = DStump(self.shape).fit(X0, W0, X1, W1)
+            node = DStump(self.shape).fit(X0, W0, X1, W1, quantizer)
             self.nodes[position-1] = node
             self.leaf[position-1] = level >= self.depth
             if level < self.depth:
@@ -181,6 +185,14 @@ class DTree:
                 return h
         assert self.is_trained, "Run fit() first"
         return predict_node(X, rs, cs, 1)
+    def as_dict(self):
+        d = {"ftr":[], "thr":[], "pred":[]}
+        for node,leaf_flag in zip(self.nodes, self.leaf):
+            nd = node.as_dict()
+            d["ftr"].append(nd["ftr"])
+            d["thr"].append(nd["thr"])
+            d["pred"].append(nd["pred"] if leaf_flag else None)
+        return d
     @property
     def is_trained(self):
         return self.nodes is not None
@@ -188,43 +200,101 @@ class DTree:
     #     pass
 
 
+default_channel_opts = {
+    "shrink": 2,
+    "n_per_oct": 4,
+    "smooth": 0,
+    "target_dtype": np.int16,
+    "channels": []
+}
+
+
+def weights(H):
+    return np.exp(H) / H.size / 2
+
+
+def normalized_weights(W0, W1):
+    w = W0.sum() + W1.sum()
+    return W0/w, W1/w
+
+
+def loss(H0, H1):
+    return (np.exp(H0).sum() + np.exp(-H1).sum()) / (H0.size+H1.size)
+
+
 class Model:
-    def __init__(self):
-        pass
-    def fit(self):
-        pass
+    def __init__(self, shape, channel_opts, alpha=0.1, n_pos=1000, n_neg=1000, tr_set_size=500, quantizer=None, logger=None, wh=DStump, **wh_args):
+        self.logger = logger = logging.getLogger(__name__)
+        self.shape = shape
+        self.channel_opts = channel_opts
+        self.alpha = alpha
+        self.n_pos = n_pos
+        self.n_neg = n_neg
+        self.tr_set_size = tr_set_size
+        self.quantizer = quantizer
+        self.wh = wh
+        self.wh_args = wh_args
+        self.classifier = []
+        self.P0 = 1
+        self.P1 = 1
+
+    def fit_stage(self, X0, H0, P0, X1, H1, P1, theta=None):
+        W0 = weights(H0)
+        W1 = weights(-H1)
+        idx0 = np.random.choice(W0.size, self.tr_set_size, p=W0/W0.sum())
+        idx1 = np.random.choice(W1.size, self.tr_set_size, p=W1/W1.sum())
+        W0 = weights( H0[idx0])
+        W1 = weights(-H1[idx1])
+        weak = self.wh(self.shape, **self.wh_args).fit(X0[...,idx0], W0, X1[...,idx1], W1, self.quantizer)
+        H0 += weak.predict(X0)
+        H1 += weak.predict(X1)
+        if theta is None:
+            theta = fit_rejection_threshold(H0, P0, H1, P1, self.alpha)
+        return weak, theta
+
+    def get_detector(self):
+        det_dict = {
+            "opts": {
+                "shape": self.shape,
+                "pyramid": self.channel_opts
+            },
+            "classifier": self.classifier
+        }
+        return det_dict
+
+    def fit(self, generator, T):
+        pool = SamplePool(self.shape, self.channel_opts, n_pos=self.n_pos, n_neg=self.n_neg)
+        history = []
+        for t in range(T):
+            logger.info(f"Training stage {t+1}/{T}")
+            pool.update(generator, self.get_detector())
+            X1,H1 = pool.get_positive()
+            X0,H0 = pool.get_negative()
+            logging.debug(f"Loss: {loss(H0,H1):0.5f}")
+            F0 = image_to_features(X0)
+            F1 = image_to_features(X1)
+            weak, theta = self.fit_stage(F0, H0, self.P0, F1, H1, self.P1)
+            # p = np.sum(H0 > theta) / H0.size
+            # if theta > -np.inf and p > 0.95:
+            #     logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
+            #     theta = -np.inf
+            self.classifier.append( (weak, theta) )
+            p0,p1 = pool.prune(theta)
+            self.P0 *= p0
+            self.P1 *= p1
+            history.append( (self.P0, self.P1,loss(H0,H1)) )
+        return history
+
     def predict(self, X):
-        pass
-    def classifier(self):
-        pass
+        assert X.shape[1:] == self.shape, f"Shape must be {self.shape}"
+        n = X.shape[0]
+        H = np.zeros(n, np.float32)
+        mask = np.ones(n, np.bool)
+        for weak, theta in self.classfier:
+            H[mask] = weak.predict(X[mask])
+            mask = np.logical_and(mask, H>=theta)
+        return H, mask
 
-
-def fit_stage(
-    X0, H0, P0, X1, H1, P1,
-    alpha=0.1, theta=None,
-    wh=DStump, **kwargs):
-    """
-    Warning:
-    The function mutates values in H0 and H1.
-    """
-    W0 = weights(H0)
-    W1 = weights(-H1)
-
-    idx0 = np.random.choice(W0.size, 4000, p=W0/W0.sum())
-    idx1 = np.random.choice(W1.size, 4000, p=W1/W1.sum())
-    weak = wh(**kwargs).fit(X0[...,idx0], W0[idx0], X1[...,idx1], W1[idx1])
-
-    h0 = weak.predict(X0)
-    h1 = weak.predict(X1)
-    #logger.debug(f"Update H0 {H0.shape} with {h0.shape}")
-    H0 += h0
-    #logger.debug(f"Update H1 {H1.shape} with {h1.shape}")
-    H1 += h1
-
-    if theta is None:
-        theta = fit_rejection_threshold(H0, P0, H1, P1, alpha)
-
-    return weak, theta
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
@@ -235,12 +305,16 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
     min1 = np.min(H1)
     if max0 < min1:
         logger.debug(f"H0 and H1 are non-overlapping H0 < {max0}, H1 > {min1}")
-        return 0.5 * (max0 + min1)
-    H = np.concatenate([H0,H1])
-    H = np.sort(np.unique(H))
-    ts = 0.5 * (H[1:] + H[:-1])
+        return min1
+    ts = np.concatenate([H0,H1])
+    ts = np.sort(np.unique(ts))
+    #print(ts, ts.dtype)
+    if ts.size < 3:
+        logger.debug(f"Not enough unique responses to estimate theta (forcing to {-np.inf})")
+        return -np.inf
+    ts = ts[1:]
     R = np.empty_like(ts)
-    logger.debug(f"Testing {R.size} thresholds on interval <{min(H):.2f},{max(H):.2f}>")
+    logger.debug(f"Testing {R.size} thresholds on interval <{min(ts):.2f},{max(ts):.2f}>")
     for i,t in enumerate(ts):
         p0 = (H0 < t).sum() / H0.size
         p1 = (H1 < t).sum() / H1.size
@@ -253,46 +327,5 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
         theta = -np.inf
     else:
         theta = ts[np.max(idx)]
-    logger.debug(f"theta = {theta:.2f}")
+    logger.debug(f"theta = {theta:.4f}")
     return theta
-
-
-def fit_model(model, pool, alpha=0.1, T=1024, wh=DStump, **kwargs):
-    """
-    """
-    shape = model["opts"]["shape"]
-    model["wh_class"] = wh
-    for t in range(T):
-        logger.info(f"Training stage {t+1}/{T}")
-
-        pool.update(model)
-        X1,H1,P1 = pool.get_positive()
-        X0,H0,P0 = pool.get_negative()
-
-        F0 = image_to_features(X0)
-        F1 = image_to_features(X1)
-
-        #theta = None if t%2==1 and t<=128 else -np.inf
-        theta = None if t>=1 and t<=128 else -np.inf
-        weak, theta = fit_stage(F0, H0, P0, F1, H1, P1, wh=wh, alpha=alpha, theta=theta, **kwargs)
-
-        # Check negative probability induced by theta
-        p = np.sum(H0 > theta) / H0.size
-        if theta > -np.inf and p > 0.95:
-            logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
-            theta = -np.inf
-
-        # Add new stage to the model
-        model["classifier"].append( (weak, theta) )
-
-        # Remove samples from the pool and update probabilites
-        pool.prune(theta)
-
-
-def save_model(model, filename):
-    cl = []
-    for weak,theta in model["classifier"]:
-        cl.append( [weak.as_dict(), float(theta)] )
-    import json
-    with open(filename,"w") as f:
-        json.dump(cl, f, indent=True)
