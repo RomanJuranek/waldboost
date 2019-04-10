@@ -2,8 +2,9 @@ import cv2
 import logging
 import numpy as np
 from .detector import detect
-from .groundtruth import match, bb_overlap_distance, nms
+from .groundtruth import match
 from sklearn import metrics
+import bbx
 
 
 logger = logging.getLogger(__name__)
@@ -21,15 +22,15 @@ def process_images(testing_images, model, verifier=None):
 
 def nms_basic(dt, score, confidence):
     mask = score>0
-    return nms(dt[mask,...], score[mask], max_dist=0.9)
+    return bbx.nms(dt[mask,...], score[mask], min_overlap=0.2)
 
 
 def nms_with_verification(dt, score, confidence):
     mask = np.logical_and(score>0, confidence>0.1)
-    return nms(dt[mask,...], score[mask], max_dist=0.9)
+    return bbx.nms(dt[mask,...], score[mask], min_overlap=0.2)
 
 
-def compute_roc(results, nms_func, metric=bb_overlap_distance, max_dist=0.5):
+def compute_roc(results, nms_func, metric=bb_overlap_distance, max_dist=0.3):
     Y = []
     score = []
     ignore = []
@@ -64,6 +65,5 @@ def compute_roc(results, nms_func, metric=bb_overlap_distance, max_dist=0.5):
     fp,_ = np.histogram(score[Y==0], bins)
     fppi = (fp.sum() - np.cumsum(fp)) / n_imgs
     miss = 1-(1-(np.cumsum(tp) / tp.sum())) * det_rate
-
 
     return fppi, miss, bins
