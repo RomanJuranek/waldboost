@@ -27,7 +27,7 @@ def separable_convolve(image, kernel):
 
 
 def grad_mag(image, norm=None, eps=1e-3):
-    gx, gy = gradients(image)
+    gx, gy = gradients(image.astype("f"))
     mag = np.sqrt(gx**2 + gy**2)
     if norm is not None and norm > 1:
         H = triangle_kernel(norm)
@@ -37,6 +37,7 @@ def grad_mag(image, norm=None, eps=1e-3):
 
 
 def grad_hist(image, n_bins=6, full=False):
+    image = image.astype("f")
     gx, gy = gradients(image)
     max_theta = 2*np.pi if full else np.pi
     theta = np.linspace(0, max_theta, n_bins+1)
@@ -92,3 +93,11 @@ def channel_pyramid(image, channel_opts):
             yield np.atleast_3d(chns), real_scale/shrink
 
         base_image = block_reduce(base_image, (2,2), np.mean).astype(image.dtype)
+
+
+class FeaturePyramid:
+    def __init__(self):
+        pass
+
+    def iter_image(self, image):
+        pass
