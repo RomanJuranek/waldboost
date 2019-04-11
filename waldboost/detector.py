@@ -32,7 +32,7 @@ def forward(chns, shape, classifier):
 def detect(image, detector, verifier=None):
     from .samples import gather_samples
 
-    shape = m,n,_ = detector["opts"]["shape"]
+    shape = m,n,_ = detector["shape"]
 
     X = []
     R = []
@@ -41,7 +41,7 @@ def detect(image, detector, verifier=None):
     H = []
 
     # Loop over the channel pyramid and gather results
-    for chns, scale in channel_pyramid(image, detector["opts"]):
+    for chns, scale in channel_pyramid(image, detector["channel_opts"]):
         r, c, h = forward(chns, shape, detector["classifier"])
         if verifier is not None:
             X.append(gather_samples(chns, r, c, shape))
@@ -68,6 +68,10 @@ def detect(image, detector, verifier=None):
 def bbs_from_dets(r, c, shape, scale):
     m = shape[0]
     n = shape[1]
+    if len(r) == 0:
+        return np.empty( (0,4), "f")
     if isinstance(scale, np.ndarray):
-        return np.array([(c,r,n,m) for r,c in zip(r,c)], np.float) / scale[:,None]
-    return np.array([(c,r,n,m) for r,c in zip(r,c)], np.float) / scale
+        res = np.array([(c,r,n,m) for r,c in zip(r,c)], np.float) / scale[:,None]
+    else:
+        res = np.array([(c,r,n,m) for r,c in zip(r,c)], np.float) / scale
+    return np.atleast_2d(res)

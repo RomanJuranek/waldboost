@@ -36,7 +36,7 @@ def bbgt_image_generator(img_fs, gt_fs, daylight=True, ar=8, ar_range=(8,14)):
     logger.debug(f"Generating from list of {len(fs)} images")
     shuffle(fs)
     for img_f, gt_f in cycle(fs):
-        gt = groundtruth.read_bbgt(gt_f, lbls={"lp"}, ar=ar, resize=1.3, ar_range=ar_range)
+        gt = groundtruth.read_bbgt(gt_f, lbls={"lp"}, target_ar=ar, resize=(1.3,2), ar_range=ar_range)
         if np.all(gt[...,-1]==1):
             logger.debug(f"Skipping {basename(img_f)}")
             continue
@@ -64,27 +64,28 @@ def bbgt_image_generator(img_fs, gt_fs, daylight=True, ar=8, ar_range=(8,14)):
         yield im, gt
 
 alpha = 0.25
-T = 256
-n_pos = 1000
+T = 64
+n_pos = 2000
 n_neg = 10000
-shape = (10,40,4)
+shape = (10,26,4)
 name = "cgt_lp_0002"
+
 
 channel_opts = {
     "shrink": 2,
-    "n_per_oct": 4,
+    "n_per_oct": 8,
     "smooth": 0,
     "target_dtype": np.int16,
     "channels": [ (grad_hist_4,()) ]
+    #"channels": [ ]
     }
 
-q = Quantizer((-4,4),8)
+# q = Quantizer((-4,4),8)
 
 training_images = bbgt_image_generator(img_fs, gt_fs, daylight=True)
-model = waldboost.Model(shape, channel_opts, alpha=alpha)
-model.fit(training_images, T=T)
-save_cache(model, name+".pkl")
-#model.save("xxx")
+model = waldboost.Model(shape, channel_opts, alpha=alpha, n_pos=n_pos, n_neg=n_neg, wh=waldboost.training.DTree, depth=3)
+history = model.fit(training_images, T=T)
+save_cache(model.as_dict(), f"{name}.pkl")
 
 #
 # logger.info("Updating training set before training verifier")

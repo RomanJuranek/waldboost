@@ -11,9 +11,9 @@ import bbx
 import time
 
 
-name = "cgt_lp_0001"
+name = "cgt_lp_0002"
 model = load_cache(name + ".pkl")
-verifier = load_model(name + "_verifier.h5")
+verifier = None#load_model(name + "_verifier.h5")
 
 #model["opts"]["pyramid"]["n_per_oct"] = 6
 
@@ -40,7 +40,7 @@ for f in img_fs[:]:
     print(f"Duration {1000*tm:0.1f}ms")
 
     #print(bbs.shape, score.shape, confidence.shape)
-    mask = np.logical_and(score>0, confidence>0.5)
+    mask = np.logical_and(score>2, confidence>0.5)
     bbs_nms,_ = bbx.nms(bbs[mask,...], score[mask], min_group=2, min_overlap=0.2)
     #
     im = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)

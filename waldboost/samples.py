@@ -54,7 +54,20 @@ def reject_samples(H, X, theta):
 
 
 def get_new_samples(chns, scale, gt, shape, classifier, max_pos=100, max_neg=100):
-    if classifier is not None:
+    def take_samples(mask, max_n):
+        if np.any(mask):
+            idx = np.nonzero(mask)[0]
+            if len(idx) > max_n:
+                idx = np.random.choice(idx, max_n, replace=False)
+            X = gather_samples(chns, r[idx], c[idx], shape)
+            H = h[idx]
+        else:
+            X = np.zeros((0,)+shape, "f")
+            H = np.zeros(0, "f")
+            idx = []
+        return X, H, idx
+
+    if classifier:
         r,c,h = forward(chns, shape, classifier)
     else:
         r0,c0,h0 = sample_random(chns, shape)
@@ -66,25 +79,25 @@ def get_new_samples(chns, scale, gt, shape, classifier, max_pos=100, max_neg=100
     dt = bbs_from_dets(r, c, shape, scale)
     dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
 
-    def take_samples(mask, max_n):
-        if np.any(mask):
-            idx = np.nonzero(mask)[0]
-            if len(idx) > max_n:
-                idx = np.random.choice(idx, max_n, replace=False)
-            X = gather_samples(chns, r[idx], c[idx], shape)
-            H = h[idx]
-        else:
-            X = np.zeros((0,)+shape, "f")
-            H = np.zeros(0, "f")
-        return X, H
-
     fp = np.logical_and(dt_dist>0.8, ~dt_ign)
-    X0, H0 = take_samples(fp, max_neg)
+    X0, H0, fp_idx = take_samples(fp, max_neg)
 
-    tp = np.logical_and(dt_dist<0.5, ~dt_ign)
-    X1, H1 = take_samples(tp, max_pos)
+    tp = np.logical_and(dt_dist<0.25, ~dt_ign)
+    X1, H1, tp_idx = take_samples(tp, max_pos)
 
-    return X0, H0, X1, H1
+    dt_flag = np.zeros_like(dt_ign, "f")
+    dt_flag[fp_idx] = -1
+    dt_flag[tp_idx] = 1
+
+    try:
+        dt = np.concatenate([dt, dt_flag[:,None]], axis=1)
+        mask = dt_flag != 0
+        dt = dt[mask,...]
+    except:
+        print(dt.shape, dt_flag.shape)
+        raise RuntimeError
+
+    return X0, H0, X1, H1, dt
 
 
 class SamplePool:
@@ -113,18 +126,41 @@ class SamplePool:
         new_H1 = []
         classifier = detector["classifier"]
 
+        # if classifier:
+        #     req_pos = 0
+
         for im, gt in generator:
-            for chns, scale in channel_pyramid(im, detector["opts"]):
-                X0,H0,X1,H1 = get_new_samples(chns, scale, gt, self.shape, classifier, max_pos=min(req_pos,100), max_neg=min(req_neg,100))
+            dt = []
+            for chns, scale in channel_pyramid(im, self.channel_opts):
+                X0,H0,X1,H1,_dt = get_new_samples(chns, scale, gt, self.shape, classifier, max_pos=min(req_pos,10), max_neg=min(req_neg,10))
                 new_X0.append(X0)
                 new_H0.append(H0)
                 new_X1.append(X1)
                 new_H1.append(H1)
+                dt.append(_dt)
                 req_neg -= H0.size
                 req_pos -= H1.size
-                self.logger.debug(f"Sampled {H0.size} negatives and {H1.size} positives")
+                # self.logger.debug(f"Sampled {H0.size} negatives and {H1.size} positives")
             if req_neg <= 0 and req_pos <= 0:
                 break
+
+            # dt = np.concatenate(dt)
+            # import cv2
+            # im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+            # for x,y,w,h,ign in gt.astype("i"):
+            #     if ign == 1:
+            #         c = (0,0,0)
+            #     else:
+            #         c = (255,0,0)
+            #     cv2.rectangle(im, (x,y),(x+w,y+h), c, 4)
+            # for x,y,w,h,flag in dt.astype("i"):
+            #     if flag == 1:
+            #         c = (0,255,0)
+            #     else:
+            #         c = (0,0,255)
+            #     cv2.rectangle(im, (x,y),(x+w,y+h), c, 1)
+            # cv2.imshow("x",im)
+            # cv2.waitKey(1)
 
             #     if req_neg > 0:
             #         r,c,h = predict_and_sample(chns, detector)

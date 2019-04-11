@@ -52,18 +52,16 @@ def grad_hist(image, n_bins=6, full=False):
         return np.abs(chns)
 
 
-def channel_pyramid(image, opts):
-    pyr_opts = opts["pyramid"]
-    shrink = pyr_opts["shrink"]
-    n_per_oct = pyr_opts["n_per_oct"]
-    smooth = pyr_opts["smooth"]
-    channels = pyr_opts["channels"]
-    target_dtype = pyr_opts["target_dtype"]
+def channel_pyramid(image, channel_opts):
+    shrink = channel_opts["shrink"]
+    n_per_oct = channel_opts["n_per_oct"]
+    smooth = channel_opts["smooth"]
+    channels = channel_opts["channels"]
+    target_dtype = channel_opts["target_dtype"]
 
     assert shrink in [1,2,3,4], "Shrink factor must be integer 1 <= shrink <= 4"
 
     base_image = image
-    m,n,n_channels =  opts["shape"]
 
     factor = 2**(-1/n_per_oct)
 
@@ -72,7 +70,7 @@ def channel_pyramid(image, opts):
         for i in range(n_per_oct):
             s = factor ** i
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
-            if nh < shrink*m or nw < shrink*n:
+            if nh < 50 or nw < 50:
                 return
 
             real_scale = nw / image.shape[1]

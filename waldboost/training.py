@@ -223,7 +223,7 @@ def loss(H0, H1):
 
 
 class Model:
-    def __init__(self, shape, channel_opts, alpha=0.1, n_pos=1000, n_neg=1000, tr_set_size=500, quantizer=None, logger=None, wh=DStump, **wh_args):
+    def __init__(self, shape, channel_opts, alpha=0.1, n_pos=2000, n_neg=2000, tr_set_size=0, quantizer=None, logger=None, wh=DStump, **wh_args):
         self.logger = logger = logging.getLogger(__name__)
         self.shape = shape
         self.channel_opts = channel_opts
@@ -238,42 +238,43 @@ class Model:
         self.P0 = 1
         self.P1 = 1
 
-    def fit_stage(self, X0, H0, P0, X1, H1, P1, theta=None):
+    def fit_stage(self, X0, H0, X1, H1, theta=None):
         W0 = weights(H0)
         W1 = weights(-H1)
-        idx0 = np.random.choice(W0.size, self.tr_set_size, p=W0/W0.sum())
-        idx1 = np.random.choice(W1.size, self.tr_set_size, p=W1/W1.sum())
-        W0 = weights( H0[idx0])
-        W1 = weights(-H1[idx1])
-        weak = self.wh(self.shape, **self.wh_args).fit(X0[...,idx0], W0, X1[...,idx1], W1, self.quantizer)
+        if self.tr_set_size > 0:
+            idx0 = np.random.choice(W0.size, self.tr_set_size, p=W0/W0.sum())
+            idx1 = np.random.choice(W1.size, self.tr_set_size, p=W1/W1.sum())
+            W0 = weights( H0[idx0])
+            W1 = weights(-H1[idx1])
+            weak = self.wh(self.shape, **self.wh_args).fit(X0[...,idx0], W0, X1[...,idx1], W1, self.quantizer)
+        else:
+            weak = self.wh(self.shape, **self.wh_args).fit(X0, W0, X1, W1, self.quantizer)
         H0 += weak.predict(X0)
         H1 += weak.predict(X1)
         if theta is None:
-            theta = fit_rejection_threshold(H0, P0, H1, P1, self.alpha)
+            theta = fit_rejection_threshold(H0, self.P0, H1, self.P1, self.alpha)
         return weak, theta
-
-    def get_detector(self):
-        det_dict = {
-            "opts": {
-                "shape": self.shape,
-                "pyramid": self.channel_opts
-            },
-            "classifier": self.classifier
-        }
-        return det_dict
 
     def fit(self, generator, T):
         pool = SamplePool(self.shape, self.channel_opts, n_pos=self.n_pos, n_neg=self.n_neg)
         history = []
         for t in range(T):
             logger.info(f"Training stage {t+1}/{T}")
-            pool.update(generator, self.get_detector())
+            pool.update(generator, self.as_dict())
             X1,H1 = pool.get_positive()
             X0,H0 = pool.get_negative()
+
             logging.debug(f"Loss: {loss(H0,H1):0.5f}")
             F0 = image_to_features(X0)
             F1 = image_to_features(X1)
-            weak, theta = self.fit_stage(F0, H0, self.P0, F1, H1, self.P1)
+
+            Y1,mask = self.predict(F1)
+            assert np.all(mask)
+            assert np.all(H1 == Y1)
+
+            theta = None if 2 < t <= 32 else -np.inf
+            weak, theta = self.fit_stage(F0, H0, F1, H1, theta)
+
             # p = np.sum(H0 > theta) / H0.size
             # if theta > -np.inf and p > 0.95:
             #     logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
@@ -282,19 +283,43 @@ class Model:
             p0,p1 = pool.prune(theta)
             self.P0 *= p0
             self.P1 *= p1
+            logging.info(f"Negative rejection {1-self.P0:0.4f}")
+            logging.info(f"Positive rejection {1-self.P1:0.4f}")
             history.append( (self.P0, self.P1,loss(H0,H1)) )
         return history
 
     def predict(self, X):
-        assert X.shape[1:] == self.shape, f"Shape must be {self.shape}"
-        n = X.shape[0]
+        n = X.shape[1]
         H = np.zeros(n, np.float32)
         mask = np.ones(n, np.bool)
-        for weak, theta in self.classfier:
-            H[mask] = weak.predict(X[mask])
+        for weak, theta in self.classifier:
+            H[mask] += weak.predict(X[...,mask])
+            if theta == -np.inf:
+                continue
             mask = np.logical_and(mask, H>=theta)
         return H, mask
 
+    def as_dict(self):
+        model_dict = {
+            "shape": self.shape,
+            "channel_opts": self.channel_opts.copy(),
+            "quantizer": self.quantizer.copy() if self.quantizer is not None else None,
+            "classifier": self.classifier.copy()
+        }
+        return model_dict
+
+    def export(self, filename):
+        d = self.as_dict()
+        model_dict = {}
+        model_dict["shape"] = d["shape"]
+        ch = d["channel_opts"]
+        ch["target_dtype"] = ch["target_dtype"].__name__
+        ch["channels"] = [ (f.__name__,p) for f,p in ch["channels"] ]
+        model_dict["channel_opts"] = ch
+        model_dict["classifier"] = [ (w.as_dict(),float(t))  for w,t in d["classifier"] ]
+        import json
+        with open(filename, "w") as f:
+            json.dump(model_dict, f)
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
