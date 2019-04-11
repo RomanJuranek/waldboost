@@ -308,18 +308,17 @@ class Model:
         }
         return model_dict
 
-    def export(self, filename):
-        d = self.as_dict()
-        model_dict = {}
-        model_dict["shape"] = d["shape"]
-        ch = d["channel_opts"]
-        ch["target_dtype"] = ch["target_dtype"].__name__
-        ch["channels"] = [ (f.__name__,p) for f,p in ch["channels"] ]
-        model_dict["channel_opts"] = ch
-        model_dict["classifier"] = [ (w.as_dict(),float(t))  for w,t in d["classifier"] ]
-        import json
-        with open(filename, "w") as f:
-            json.dump(model_dict, f)
+def export_model(d, filename):
+    model_dict = {}
+    model_dict["shape"] = d["shape"]
+    ch = d["channel_opts"]
+    ch["target_dtype"] = ch["target_dtype"].__name__
+    ch["channels"] = [ (f.__name__,p) for f,p in ch["channels"] ]
+    model_dict["channel_opts"] = ch
+    model_dict["classifier"] = [ (w.as_dict(),float(t))  for w,t in d["classifier"] ]
+    import json
+    with open(filename, "w") as f:
+        json.dump(model_dict, f)
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
