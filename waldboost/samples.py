@@ -18,15 +18,6 @@ def sample_random(chns, shape, sample_prob=1e-3):
     return r, c, np.zeros_like(r, np.float32)
 
 
-def predict_and_sample(chns, detector):
-    if detector["classifier"]:
-        dets = forward(chns, detector)
-    else:
-        shape = detector["opts"]["shape"]
-        dets = sample_random(chns, shape)
-    return dets
-
-
 def gather_samples(chns, rs, cs, shape):
     #u,v = chns.shape
     m,n,_ = shape
@@ -162,56 +153,6 @@ class SamplePool:
             # cv2.imshow("x",im)
             # cv2.waitKey(1)
 
-            #     if req_neg > 0:
-            #         r,c,h = predict_and_sample(chns, detector)
-            #         dt = bbs_from_dets(r, c, self.shape, scale)
-            #         dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-            #         fp = dt_dist > 0.8
-            #         dt_ign = np.logical_and(dt_ign, ~fp)
-            #         if np.any(fp):
-            #             fp_idx = np.nonzero(fp)[0]
-            #             if fp_idx.size > 50:
-            #                 fp_idx = np.random.choice(fp_idx, 50)
-            #             new_X0.append(gather_samples(chns, r[fp_idx], c[fp_idx], self.shape))
-            #             new_H0.append(h[fp_idx])
-            #             req_neg -= fp_idx.size
-            #
-            #         for bb, ign, is_fp in zip(dt, dt_ign, fp):
-            #             x,y,w,h = bb.astype(int)
-            #             if ign:
-            #                 c = (0,0,0)
-            #             elif is_fp:
-            #                 c = (0,255,0)
-            #             else:
-            #                 c = (0,0,255)
-            #             cv2.rectangle(I, (x,y),(x+w,y+h), c, 1)
-            #
-            #     if req_pos > 0:
-            #         r,c,h = sample_from_bbs(chns, self.shape, gt[:,:4]*scale)
-            #         dt = bbs_from_dets(r, c, self.shape, scale)
-            #         dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-            #         tp = np.logical_and(dt_dist<0.25, ~dt_ign)
-            #         if np.any(tp):
-            #             tp = np.nonzero(tp)[0]
-            #             new_X1.append(gather_samples(chns, r[tp], c[tp], self.shape))
-            #             new_H1.append(h[tp])
-            #             req_pos -= tp.size
-            #             logging.debug(f"Added {tp.size} pos. samples")
-            #
-            # for bb in gt:
-            #     x,y,w,h,ign = bb.astype(int)
-            #     if ign:
-            #         c = (0,0,0)
-            #     else:
-            #         c = (255,0,0)
-            #     cv2.rectangle(I, (x,y),(x+w,y+h), c, 4)
-            #
-            # cv2.imshow("Hard neg. mining", I)
-            # cv2.waitKey(1)
-            #
-            # if req_neg <= 0 and req_pos <= 0:
-            #     break
-
         self.X0 = np.concatenate(new_X0+[self.X0])
         self.H0 = np.concatenate(new_H0+[self.H0])
         self.X1 = np.concatenate(new_X1+[self.X1])
@@ -230,8 +171,6 @@ class SamplePool:
         self.H1, self.X1, p1 = reject_samples(self.H1, self.X1, theta)
         self.logger.debug(f"Prunning: p0 = {p0:0.3f}, p1 = {p1:0.3f}")
         return p0, p1
-        #self.logger.debug(f"Negative rejection rate  {1-self.P0:0.5f}")
-        #self.logger.debug(f"Positive rejection rate  {1-self.P1:0.5f}")
 
     def get_positive(self):
         return self.X1, self.H1
