@@ -3,7 +3,6 @@
 
 
 import numpy as np
-import cv2
 from .channels import channel_pyramid
 
 
