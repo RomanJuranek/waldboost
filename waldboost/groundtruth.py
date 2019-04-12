@@ -65,7 +65,7 @@ def read_bbgt(filename, lbls={}, ilbls={}, ar_range=None, target_ar=1, resize=1)
                 bb = bbx.resize(bb, resize)
                 gt.append(bb)
             elif lbl in ilbls or ign:
-                gt.append( bb + (1,))
+                gt.append( np.atleast_2d(bb + (1,)) )
             else:
                 # lbl not in lbls nor ilbls
                 pass
