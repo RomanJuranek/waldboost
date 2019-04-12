@@ -53,7 +53,7 @@ def get_new_samples(chns, scale, gt, shape, classifier, max_pos=100, max_neg=100
             X = gather_samples(chns, r[idx], c[idx], shape)
             H = h[idx]
         else:
-            X = np.zeros((0,)+shape, "f")
+            X = np.zeros((0,)+shape, chns.dtype)
             H = np.zeros(0, "f")
             idx = []
         return X, H, idx
@@ -131,7 +131,7 @@ class SamplePool:
                 dt.append(_dt)
                 req_neg -= H0.size
                 req_pos -= H1.size
-                # self.logger.debug(f"Sampled {H0.size} negatives and {H1.size} positives")
+                #self.logger.debug(f"Sampled {H0.size} negatives and {H1.size} positives")
             if req_neg <= 0 and req_pos <= 0:
                 break
 
