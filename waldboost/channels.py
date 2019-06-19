@@ -26,7 +26,7 @@ def separable_convolve(image, k0, k1=None):
     return output
 
 
-def grad_mag(image, norm=None, eps=1e-3):
+def grad_mag(image, norm=5, eps=1e-3):
     gx, gy = gradients(image.astype("f"))
     mag = np.sqrt(gx**2 + gy**2)
     if norm is not None and norm > 1:

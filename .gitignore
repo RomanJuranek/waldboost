@@ -4,3 +4,4 @@ digisaw
 models
 *.pkl
 *.json
+*_pb2.py

@@ -14,7 +14,10 @@ def symbol_name(s):
 
 
 def symbol_from_name(name):
-    return eval(name, {"numpy":np, "waldboost":waldboost})
+    if name.startswith("builtins"):
+        _,name = name.split(".")
+    ls = {"numpy":np,"waldboost":waldboost}
+    return eval(name, {}, ls)
 
 
 class Model:
