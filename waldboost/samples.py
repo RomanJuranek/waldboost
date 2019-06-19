@@ -1,20 +1,21 @@
+import math
 import logging
 import numpy as np
 import bbx
 
 from . import groundtruth
-from .detector import forward, bbs_from_dets
-from .channels import channel_pyramid
 
 
-def sample_random(chns, shape, sample_prob=1e-3):
+def sample_from_bbs(chns, shape, bbs):
     u,v,_ = chns.shape
     m,n,_ = shape
-    if u > m and v > n:
-        map = np.random.rand(u-m,v-n) < sample_prob
-        r,c = np.nonzero(map)
-    else:
-        r,c = [], []
+    map = np.zeros((max(u-m,0),max(v-n,0)), np.bool)
+    for bb in bbs:
+        x,y,w,h,ign = bb.astype(np.int)
+        if ign: continue
+        if abs(math.log((m*n) / (h*w))) < 0.2:  # Area of gt and sample must match approximately
+            map[y-m:y+h,x-n:x+w] = 1
+    r,c = np.nonzero(map)
     return r, c, np.zeros_like(r, np.float32)
 
 
@@ -27,153 +28,90 @@ def gather_samples(chns, rs, cs, shape):
     return np.array(X)
 
 
-def sample_from_bbs(chns, shape, bbs):
-    u,v,_ = chns.shape
-    m,n,_ = shape
-    map = np.zeros((max(u-m,0),max(v-n,0)), np.bool)
-    for bb in bbs:
-        x,y,w,h = bb.astype(np.int)
-        map[y-m:y+h,x-n:x+w] = 1
-    r,c = np.nonzero(map)
-    return r, c, np.zeros_like(r, np.float32)
+class Pool:
+    def __init__(self, output_shape, min_fp=1000, min_tp=1000, logger=None):
+        self.samples = []
+        self.output_shape = output_shape
+        self.min_fp_dist = 0.9
+        self.max_tp_dist = 0.2
+        self.min_tp = min_tp
+        self.min_fp = min_fp
+        self.max_candidates = 100
+        self.logger = logger or logging.getLogger("Pool")
 
+    def clear(self):
+        self.samples.clear()
 
-def reject_samples(H, X, theta):
-    mask = H >= theta
-    p = mask.sum() / mask.size
-    return H[mask], X[mask,...], p
+    def classify_dt(self, dt, gt):
+        dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
+        tp = np.logical_and(dt_dist < self.max_tp_dist, ~dt_ign)
+        fp = dt_dist > self.min_fp_dist
+        return np.flatnonzero(tp), np.flatnonzero(fp)
 
+    def update(self, detector, gen, take_tp=True, take_fp=True):
+        self.logger.info("Updating sample in the pool")
+        pruned_samples = []
+        for x,h,y in self.samples:
+             _h,mask = detector.predict(x)
+             if np.any(mask):
+                 pruned_samples.append(  (x[mask,...], _h[mask], y) )
+        self.samples = pruned_samples
+        self.logger.info("Sampling new data")
+        for image, gt, *_ in gen:
+            req_tp = self.require(1) and take_tp
+            if req_tp and gt.size == 0:
+                continue;
+            logging.debug(f"Req TP: {self.require(1)}, Req FP: {self.require(0)}")
+            for chns, scale, (r,c,h) in detector.scan_channels(image):
+                n_locations = len(r)
+                if n_locations > self.max_candidates and not detector:  # limit the number of candidates
+                    k = np.random.choice(n_locations, self.max_candidates)
+                    r,c,h = r[k],c[k],h[k]
 
-def get_new_samples(chns, scale, gt, shape, classifier, max_pos=100, max_neg=100):
-    def take_samples(mask, max_n):
-        if np.any(mask):
-            idx = np.nonzero(mask)[0]
-            if len(idx) > max_n:
-                idx = np.random.choice(idx, max_n, replace=False)
-            X = gather_samples(chns, r[idx], c[idx], shape)
-            H = h[idx]
-        else:
-            X = np.zeros((0,)+shape, chns.dtype)
-            H = np.zeros(0, "f")
-            idx = []
-        return X, H, idx
+                if not detector and take_tp and gt.shape[0]:
+                    scale_gt = gt.copy()
+                    scale_gt[:,:4] *= scale
+                    r_tp,c_tp,h_tp = sample_from_bbs(chns, detector.shape, scale_gt)
+                    dt_tp = detector.get_bbs(r_tp, c_tp, scale)
+                    real_tp,_ = self.classify_dt(dt_tp, gt)
+                    if len(real_tp) > 100:
+                         real_tp = np.random.choice(real_tp, 100)
+                    r = np.concatenate( [r, r_tp[real_tp]] )
+                    c = np.concatenate( [c, c_tp[real_tp]] )
+                    h = np.concatenate( [h, h_tp[real_tp]] )
 
-    if classifier:
-        r,c,h = forward(chns, shape, classifier)
-    else:
-        r0,c0,h0 = sample_random(chns, shape)
-        r1,c1,h1 = sample_from_bbs(chns, shape, bbx.scale(gt, scale))
-        r = np.concatenate([r0,r1])
-        c = np.concatenate([c0,c1])
-        h = np.concatenate([h0,h1])
+                dt = detector.get_bbs(r, c, scale)
+                tp, fp = self.classify_dt(dt, gt)
 
-    dt = bbs_from_dets(r, c, shape, scale)
-    dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
+                if take_fp and self.require(0):
+                    new_fp = gather_samples(chns, r[fp], c[fp], self.output_shape)
+                    self.append(new_fp, h[fp], 0)
 
-    fp = np.logical_and(dt_dist>0.8, ~dt_ign)
-    X0, H0, fp_idx = take_samples(fp, max_neg)
+                if take_tp and self.require(1):
+                    new_tp = gather_samples(chns, r[tp], c[tp], self.output_shape)
+                    self.append(new_tp, h[tp], 1)
 
-    tp = np.logical_and(dt_dist<0.25, ~dt_ign)
-    X1, H1, tp_idx = take_samples(tp, max_pos)
-
-    dt_flag = np.zeros_like(dt_ign, "f")
-    dt_flag[fp_idx] = -1
-    dt_flag[tp_idx] = 1
-
-    try:
-        dt = np.concatenate([dt, dt_flag[:,None]], axis=1)
-        mask = dt_flag != 0
-        dt = dt[mask,...]
-    except:
-        print(dt.shape, dt_flag.shape)
-        raise RuntimeError
-
-    return X0, H0, X1, H1, dt
-
-
-class SamplePool:
-    def __init__(self, shape, channel_opts, n_neg=1000, n_pos=1000, logger=None):
-        self.shape = shape
-        self.channel_opts = channel_opts
-        self.min_neg = n_neg
-        self.min_pos = n_pos
-        self.logger = logger or logging.getLogger(__name__)
-        self.dtype = channel_opts["target_dtype"]
-        self.X0 = np.empty((0,)+self.shape, self.dtype); self.H0 = np.empty(0, np.float32)
-        self.X1 = np.empty((0,)+self.shape, self.dtype); self.H1 = np.empty(0, np.float32)
-
-    def update(self, generator, detector):
-        req_neg = self.min_neg - self.n_neg
-        req_pos = self.min_pos - self.n_pos
-        self.logger.info(f"Pool size: {self.n_pos} positive, {self.n_neg} negative;")
-        self.logger.info(f"Require: {req_pos} positives, {req_neg} negatives")
-        if req_neg <= 0 and req_pos <= 0:
-            self.logger.debug("Nothing to update (pool is full)")
-            return
-
-        new_X0 = []
-        new_H0 = []
-        new_X1 = []
-        new_H1 = []
-        classifier = detector["classifier"]
-
-        # if classifier:
-        #     req_pos = 0
-
-        for im, gt in generator:
-            dt = []
-            for chns, scale in channel_pyramid(im, self.channel_opts):
-                X0,H0,X1,H1,_dt = get_new_samples(chns, scale, gt, self.shape, classifier, max_pos=min(req_pos,10), max_neg=min(req_neg,10))
-                new_X0.append(X0)
-                new_H0.append(H0)
-                new_X1.append(X1)
-                new_H1.append(H1)
-                dt.append(_dt)
-                req_neg -= H0.size
-                req_pos -= H1.size
-                #self.logger.debug(f"Sampled {H0.size} negatives and {H1.size} positives")
-            if req_neg <= 0 and req_pos <= 0:
+            req_tp = self.require(1) and take_tp
+            req_fp = self.require(0) and take_fp
+            if not req_tp and not req_fp:
                 break
 
-            # dt = np.concatenate(dt)
-            # import cv2
-            # im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
-            # for x,y,w,h,ign in gt.astype("i"):
-            #     if ign == 1:
-            #         c = (0,0,0)
-            #     else:
-            #         c = (255,0,0)
-            #     cv2.rectangle(im, (x,y),(x+w,y+h), c, 4)
-            # for x,y,w,h,flag in dt.astype("i"):
-            #     if flag == 1:
-            #         c = (0,255,0)
-            #     else:
-            #         c = (0,0,255)
-            #     cv2.rectangle(im, (x,y),(x+w,y+h), c, 1)
-            # cv2.imshow("x",im)
-            # cv2.waitKey(1)
+        else:
+            logging.warning("Not enough training images")
 
-        self.X0 = np.concatenate(new_X0+[self.X0])
-        self.H0 = np.concatenate(new_H0+[self.H0])
-        self.X1 = np.concatenate(new_X1+[self.X1])
-        self.H1 = np.concatenate(new_H1+[self.H1])
+    def append(self, X, H, Y):
+        self.samples.append( (X, H, Y) )
 
-    @property
-    def n_pos(self):
-        return self.X1.shape[0] if self.X1 is not None else 0
+    def gather_samples(self, c):
+        if not self.size(c):
+            return np.empty((0,)+self.output_shape), np.empty(0)
+        X = np.concatenate( [x for x,h,y in self.samples if y == c] )
+        H = np.concatenate( [h for x,h,y in self.samples if y == c] )
+        return X, H
 
-    @property
-    def n_neg(self):
-        return self.X0.shape[0] if self.X0 is not None else 0
+    def size(self, c):
+        return sum( h.size for _,h,y in self.samples if y == c )
 
-    def prune(self, theta):
-        self.H0, self.X0, p0 = reject_samples(self.H0, self.X0, theta)
-        self.H1, self.X1, p1 = reject_samples(self.H1, self.X1, theta)
-        self.logger.debug(f"Prunning: p0 = {p0:0.3f}, p1 = {p1:0.3f}")
-        return p0, p1
-
-    def get_positive(self):
-        return self.X1, self.H1
-
-    def get_negative(self):
-        return self.X0, self.H0
+    def require(self, c):
+        v = self.min_fp if c==0 else self.min_tp
+        return max(v-self.size(c), 0)

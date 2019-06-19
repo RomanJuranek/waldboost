@@ -13,24 +13,19 @@ logger = logging.getLogger(__name__)
 def process_images(testing_images, model, verifier=None):
     results = {}
     for img, gt, filename in testing_images:
-        dt, score, confidence = detect(img, model, verifier)
+        dt, score = detect(img, model, verifier)
         results[filename] = {
-            "dt": np.array(dt), "score": score, "confidence": confidence, "gt": np.array(gt)
+            "dt": np.array(dt), "score": score, "gt": np.array(gt)
         }
     return results
 
 
-def nms_basic(dt, score, confidence):
-    mask = score>0
+def nms_basic(dt, score):
+    mask = score > 0
     return bbx.nms(dt[mask,...], score[mask], min_overlap=0.2)
 
 
-def nms_with_verification(dt, score, confidence):
-    mask = np.logical_and(score>0, confidence>0.1)
-    return bbx.nms(dt[mask,...], score[mask], min_overlap=0.2)
-
-
-def compute_roc(results, nms_func, metric=bb_overlap_distance, max_dist=0.3):
+def compute_roc(results, nms_func, metric=bbx.overlap, max_dist=0.8):
     Y = []
     score = []
     ignore = []
@@ -39,8 +34,11 @@ def compute_roc(results, nms_func, metric=bb_overlap_distance, max_dist=0.3):
 
     for f,r in results.items():
         gt = r["gt"]
-        dt_nms, score_nms = nms_func(r["dt"], r["score"], r["confidence"])
-        dt_dist, dt_ign, gt_dist = match(dt_nms, gt, metric=metric)
+        if nms_func is not None:
+            dt_nms, score_nms = nms_func(r["dt"], r["score"])
+        else:
+            dt_nms, score_nms = r["dt"], r["score"]
+        dt_dist, dt_ign, gt_dist = match(dt_nms, gt)
         has_ign_flag = gt.shape[1] == 5
         ign_flag = gt[:,4].astype(np.bool) if has_ign_flag else np.zeros(n_gt,np.bool)
         Y.append(dt_dist < max_dist)  # distance to some gt is less than threshold -> tp

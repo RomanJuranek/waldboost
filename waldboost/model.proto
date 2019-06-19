@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+message Model {
+    repeated int32 shape = 1;
+    ChannelOpts channel_opts = 2;
+    repeated WeakClassifier classifier = 3;
+}
+
+message ChannelOpts {
+    int32 shrink = 1;
+    int32 n_per_oct = 2;
+    int32 smooth = 3;
+    string target_dtype = 4;
+    repeated string func = 5;
+}
+
+message DStump {
+    repeated int32 ftr = 1;
+    float thr = 2;
+    repeated float pred = 3;
+    float err = 4;
+}
+
+message DTree {
+    repeated DStump nodes = 1;
+    repeated int32 leaf_tag = 3;
+}
+
+message WeakClassifier {
+    oneof weak {
+        DStump dstump = 1;
+        DTree dtree = 2;
+    }
+    float theta = 3;
+}

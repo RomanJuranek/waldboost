@@ -20,9 +20,9 @@ def gradients(image):
     return gx, gy
 
 
-def separable_convolve(image, kernel):
-    output = convolve1d(image, kernel, axis=0)
-    convolve1d(output, kernel, axis=1, output=output)
+def separable_convolve(image, k0, k1=None):
+    output = convolve1d(image, k0, axis=0)
+    convolve1d(output, k1 or k0, axis=1, output=output)
     return output
 
 
@@ -67,7 +67,7 @@ def channel_pyramid(image, channel_opts):
     factor = 2**(-1/n_per_oct)
 
     while True:
-        h,w = base_image.shape
+        h,w,*_ = base_image.shape
         for i in range(n_per_oct):
             s = factor ** i
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
@@ -78,7 +78,8 @@ def channel_pyramid(image, channel_opts):
             im = (255*resize(base_image, (nh, nw))).astype("u1")
 
             if channels:
-                chns = [ func(im, *pfunc) for func,pfunc in channels ]
+                chns = [ func(im[...,0], *pfunc) for func,pfunc in channels ]
+                chns.append(im[...,1:])
             else:
                 chns = [ im[...,None] ]
 
@@ -92,12 +93,4 @@ def channel_pyramid(image, channel_opts):
 
             yield np.atleast_3d(chns), real_scale/shrink
 
-        base_image = block_reduce(base_image, (2,2), np.mean).astype(image.dtype)
-
-
-class FeaturePyramid:
-    def __init__(self):
-        pass
-
-    def iter_image(self, image):
-        pass
+        base_image = block_reduce(base_image, (2,2,1), np.mean).astype(image.dtype)

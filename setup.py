@@ -17,7 +17,7 @@ setup(
     url = "",
     keywords = "object detection, waldboost",
     packages = ["waldboost"],
-    install_requires = ["numpy", "scikit-image", "scipy", "bbx"],
+    install_requires = ["numpy", "scikit-image", "scipy", "bbx", "protobuf"],
     scripts = None,
     python_requires = ">=3.6",
     include_package_data = False,

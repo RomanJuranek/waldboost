@@ -10,9 +10,9 @@ def match(dt, gt):
     try:
         dist = 1 - bbx.dist_matrix(dt, gt, metric=bbx.overlap)
     except:
-        print(gt)
-        print(dt)
-        raise ValueError
+        #print(gt)
+        #print(dt)
+        raise
 
     n_gt, n_dt = dist.shape
 
@@ -31,13 +31,16 @@ def match(dt, gt):
     ign_flag = gt[:,4].astype(np.bool) if has_ign_flag else np.zeros(n_gt,np.bool)
     # Todo use linear sum assignment when allow_multiple is false - distance of unassigned dt will be set to default_dist
     dt_dist = np.min(dist, axis=1)
-    dt_ign = ign_flag[np.argmin(dist, axis=1)]
+    dt_assignment = np.argmin(dist, axis=1)
+    valid_assignment = dt_dist < 1
+    dt_ign = ign_flag[dt_assignment]
     gt_dist = np.min(dist, axis=0)
 
     return dt_dist, dt_ign, gt_dist
 
 
-def read_bbgt(filename, lbls={}, ilbls={}, ar_range=None, target_ar=1, resize=1):
+#, ar_range=None, target_ar=1, resize=1
+def read_bbgt(filename, lbls={}, ilbls={}):
     """
     Read ground truth from bbGt file.
     See Piotr's Toolbox for details
@@ -57,13 +60,13 @@ def read_bbgt(filename, lbls={}, ilbls={}, ar_range=None, target_ar=1, resize=1)
             ign = int(elms[10])
             ar = bb[2]/bb[3]
             if lbl in lbls:
-                if ar_range is not None:
-                    a0,a1 = ar_range
-                    ign = not (a0 <= ar <= a1) or ign
+                #if ar_range is not None:
+                #    a0,a1 = ar_range
+                #    ign = not (a0 <= ar <= a1) or ign
                 bb = bb + (ign,)
-                bb = bbx.set_aspect_ratio(bb, ar=target_ar, type=bbx.KEEP_WIDTH)
-                bb = bbx.resize(bb, resize)
-                gt.append(bb)
+                #bb = bbx.set_aspect_ratio(bb, ar=target_ar, type=bbx.KEEP_WIDTH)
+                #bb = bbx.resize(bb, resize)
+                gt.append(np.atleast_2d(bb))
             elif lbl in ilbls or ign:
                 gt.append( np.atleast_2d(bb + (1,)) )
             else:
@@ -74,4 +77,4 @@ def read_bbgt(filename, lbls={}, ilbls={}, ar_range=None, target_ar=1, resize=1)
     else:
         gt = np.concatenate(gt,axis=0)
 
-    return gt
+    return gt.astype("f")

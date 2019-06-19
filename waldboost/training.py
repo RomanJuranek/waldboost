@@ -1,40 +1,46 @@
 """ WaldBoost training algortithm
-
-Support for training of waldboost classifiers. The functions fit_stage accepts
-training data (negative and positive samples X, their responses H and priors P)
-and returns new weak classifier of specified type. The module implements
-basic DecisionStump and decision tree classes.
-
-Training data are represented as numpy matrices with shapes
-
-X0,X1   (F,N0), (F,N1)
-H0,H1   (N0,), (N1,)
-P0,P1   scalars 0 < P < 1
-
-Where F is number of features, N0, N1 amout of negative and positive samples.
-
-See also:
-waldboost.training.DecisionStump
-waldboost.training.DecisionTree
-waldboost.training.fit_stage
-waldboost.training.fit_model
 """
 
 
 import logging
 import numpy as np
-from .samples import SamplePool
 
 
 logger = logging.getLogger(__name__)
 
 
-def image_to_features(X):
+def iter_features(X):
     """
-    Transform X with shape (N,H,W,C) to (H*W*C,N) used for training
+    Sequence of X[:,a,b,c,...]
     """
-    n = X.shape[0]
-    return np.moveaxis(X,0,-1).reshape(-1,n)
+    n,*shape = X.shape
+    _X = X.reshape(n,-1)
+    for k in range(_X.shape[-1]):
+        yield _X[...,k]
+
+
+def weights(H):
+    return np.exp(H) / H.size / 2
+
+
+def normalized_weights(W0, W1):
+    w = W0.sum() + W1.sum()
+    return W0/w, W1/w
+
+
+def loss(H0, H1):
+    w0, w1 = normalized_weights(weights(H0), weights(-H1))
+    return (w0.sum() + w1.sum()) / (H0.size+H1.size)
+
+
+def weighted_sampling(n, p, trim_ratio=0.5):
+    assert 0 <= trim_ratio <= 1, "Trim ratio must be in <0,1> interval"
+    order = np.argsort(p)[::-1]
+    n_trim = round(n * trim_ratio)
+    trimmed, rest = np.split(order, [n_trim])
+    p_rest = p[rest] / p[rest].sum()
+    selected = np.random.choice(rest, n-n_trim, p=p_rest, replace=False)
+    return np.concatenate([trimmed, selected])
 
 
 def find_threshold(f0, w0, f1, w1):
@@ -51,8 +57,6 @@ def find_threshold(f0, w0, f1, w1):
         assert issubclass(f.dtype.type, np.floating)
         edges = np.linspace(fmin, fmax+1e-3, 256)
     # logger.debug(f"edges: {edges}")
-    w0 = w0 / w0.sum()
-    w1 = w1 / w1.sum()
     p0,_ = np.histogram(f0, bins=edges, weights=w0)
     p1,_ = np.histogram(f1, bins=edges, weights=w1)
     cdf0 = np.cumsum(p0)
@@ -63,6 +67,8 @@ def find_threshold(f0, w0, f1, w1):
 
 
 def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.05):
+    w0 = w0 / w0.sum()
+    w1 = w1 / w1.sum()
     thr = find_threshold(f0, w0, f1, w1)
     wsum0,_ = np.histogram((f0<thr).astype(np.uint8), bins=[0,1,2], weights=w0)
     wsum1,_ = np.histogram((f1<thr).astype(np.uint8), bins=[0,1,2], weights=w1)
@@ -76,249 +82,171 @@ def fit_decision_stump(f0, w0, f1, w1, eps=1e-4, min_split_ratio=0.05):
 
 
 class DStump:
-    def __init__(self, shape):
-        self.shape = shape
-        self.ftr_idx = None
-        self.ftr = None
-        self.thr = None
-        self.predictions = None
-        self.err = None
-    def set_params(self, ftr_idx, thr, predictions, err):
-        self.ftr_idx = ftr_idx
-        self.ftr = np.unravel_index(self.ftr_idx, self.shape)
+    def __init__(self, ftr=None, thr=None, h=None, err=None):
+        self.ftr = ftr
         self.thr = thr
-        self.predictions = predictions
+        self.h = h
         self.err = err
-    def fit(self, X0, W0, X1, W1, quantizer=None):
-        #print("Q:", quantizer)
-        w0,w1 = normalized_weights(W0, W1)
-        for ftr_idx,(x0,x1) in enumerate(zip(X0,X1)):
-            (thr, hs), err = fit_decision_stump(x0,w0,x1,w1)
-            if self.err is None or err < self.err:
-                #logging.debug(err)
-                self.set_params(ftr_idx, thr, hs, err)
-        if quantizer is not None:
-            q,q_idx = quantizer(self.predictions)
-            #logging.debug(f"{self.predictions} -> {q} ({q_idx})")
-            self.predictions = q
-            self.predictions_int = q_idx
-        return self
+    @staticmethod
+    def fit(X0, W0, X1, W1):
+        assert X0.shape[1:] == X1.shape[1:]
+        shape = X0.shape[1:]
+        instance = None
+        err = None
+        for k,(x0,x1) in enumerate(zip(iter_features(X0),iter_features(X1))):
+            (thr, hs), err_k = fit_decision_stump(x0,W0,x1,W1)
+            if err is None or err_k < err:
+                ftr = np.unravel_index(k, shape)
+                err = err_k
+                instance = DStump(ftr, thr, hs, err)
+        return instance
+    @staticmethod
+    def from_tuple(t):
+        return DStump(*t)
+    def as_tuple(self):
+        return self.ftr, self.thr, self.h, self.err
+    @staticmethod
+    def from_proto(proto):
+        return DStump(tuple(proto.ftr), proto.thr, np.array(proto.pred), proto.err)
+    def as_proto(self, proto):
+        proto.ClearField("ftr")
+        proto.ClearField("pred")
+        proto.ftr.extend(self.ftr)
+        proto.thr = self.thr
+        proto.pred.extend(self.h)
+        proto.err = self.err
     def predict(self, X):
-        assert self.is_trained, "Run fit() first"
-        return self.predictions[self._predict_bin(X)]
-    def predict_on_image(self, X, rs, cs):
-        assert self.is_trained, "Run fit() first"
-        return self.predictions[self._predict_bin_on_image(X,rs,cs)]
-    def _predict_bin(self, X):
-        assert self.is_trained, "Run fit() first"
-        return (X[self.ftr_idx,...] < self.thr).astype(np.uint8)
-    def _predict_bin_on_image(self, X, rs, cs):
-        assert self.is_trained, "Run fit() first"
+        self.check_trained()
+        return self.h[self.predict_bin(X)]
+    def predict_bin(self, X):
+        self.check_trained()
+        r, c, ch = self.ftr
+        return (X[:,r,c,ch]<self.thr).astype(np.uint8)
+    def predict_bin_on_image(self, X, rs, cs):
+        self.check_trained()
         r, c, ch = self.ftr
         chs = np.full_like(rs, ch)
         return (X[rs+r,cs+c,chs]<self.thr).astype(np.uint8)
-    def as_dict(self):
-        return {
-            "ftr": list(map(int, self.ftr)),
-            "thr": float(self.thr),
-            "pred": self.predictions.astype("f").tolist(),
-        }
-    @property
-    def is_trained(self):
-        return self.ftr_idx is not None
-    def __repr__(self):
-        if self.is_trained:
-            return f"{self.__class__} shape={self.shape}, ftr_idx={self.ftr_idx} {self.ftr}, thr={self.thr:0.3f}, preds={self.predictions} ({self.predictions.dtype}), err={self.err:0.2f}"
-        else:
-            return f"{self.__class__} [uninitialized]"
+    def predict_on_image(self, X, rs, cs):
+        return self.h[self.predict_bin_on_image(X, rs, cs)]
+    def check_trained(self):
+        assert self.ftr is not None, "Run fit() first"
 
 
 class DTree:
-    """
-    """
-    def __init__(self, shape, depth=2, banks=None):
-        self.shape = shape
-        self.depth = depth
-        self.banks = banks
-        self.nodes = None
-        self.leaf = None
-    def fit(self, X0, W0, X1, W1, quantizer=None):
-        if self.is_trained:
-            logger.warning("Discarding trained tree")
-        n_nodes = (2**self.depth-1)
-        self.nodes = [None] * n_nodes
-        self.leaf = [None] * n_nodes
+    def __init__(self, nodes=None, leaf_tag=None):
+        self.nodes = nodes
+        self.leaf_tag = leaf_tag
+    @staticmethod
+    def fit(X0, W0, X1, W1, depth=2):
+        n_nodes = (2**depth-1)
+        nodes = [None] * n_nodes
+        leaf_tag = [None] * n_nodes
         def fit_node(X0, W0, X1, W1, level, position):
-            #print(f"fitting node at level {level}, to position {position}")
-            node = DStump(self.shape).fit(X0, W0, X1, W1, quantizer)
-            self.nodes[position-1] = node
-            self.leaf[position-1] = level >= self.depth
-            if level < self.depth:
-                b0 = node._predict_bin(X0)
-                b1 = node._predict_bin(X1)
-                logger.debug(f"{(b1==0).sum() + (b0==0).sum()} -> left; {(b1==1).sum() + (b0==1).sum()} -> right")
-                fit_node(X0[...,b0==0], W0[b0==0], X1[...,b1==0], W1[b1==0], level+1, position=2*position)
-                fit_node(X0[...,b0==1], W0[b0==1], X1[...,b1==1], W1[b1==1], level+1, position=2*position+1)
+            node = DStump.fit(X0, W0, X1, W1)
+            nodes[position-1] = node
+            leaf_tag[position-1] = level >= depth
+            if level < depth:
+                b0 = node.predict_bin(X0)
+                b1 = node.predict_bin(X1)
+                fit_node(X0[b0==0], W0[b0==0], X1[b1==0], W1[b1==0], level+1, position=2*position+0)
+                fit_node(X0[b0==1], W0[b0==1], X1[b1==1], W1[b1==1], level+1, position=2*position+1)
         fit_node(X0, W0, X1, W1, level=1, position=1)
-        return self
+        return DTree(nodes, leaf_tag)
+    @staticmethod
+    def from_tuple(t):
+        nodes, leaf_tag = t
+        nodes = [DStump.from_tuple(n) for n in nodes]
+        return DTree(nodes, leaf_tag)
+    def as_tuple(self):
+        return [n.as_tuple() for n in self.nodes], self.leaf_tag
+    @staticmethod
+    def from_proto(proto):
+        nodes = [ DStump.from_proto(p) for p in proto.nodes ]
+        leaf_tag = np.array(proto.leaf_tag)
+        return DTree(nodes, leaf_tag)
+    def as_proto(self, proto):
+        proto.ClearField("nodes")
+        proto.ClearField("leaf_tag")
+        proto.leaf_tag.extend(self.leaf_tag)
+        for n in self.nodes:
+            n_pb = proto.nodes.add()
+            n.as_proto(n_pb)
     def predict(self, X):
         def predict_node(X, node_id):
-            if self.leaf[node_id-1]:
+            if self.leaf_tag[node_id-1]:
                 return self.nodes[node_id-1].predict(X)
             else:
-                bin = self.nodes[node_id-1]._predict_bin(X)
-                h = np.empty(X.shape[1], "f")
-                h[bin==0] = predict_node(X[...,bin==0], 2*node_id)
-                h[bin==1] = predict_node(X[...,bin==1], 2*node_id+1)
+                b = self.nodes[node_id-1].predict_bin(X)
+                h = np.empty(X.shape[0], "f")
+                h[b==0] = predict_node(X[b==0], 2*node_id+0)
+                h[b==1] = predict_node(X[b==1], 2*node_id+1)
                 return h
-        assert self.is_trained, "Run fit() first"
+        self.check_trained()
         return predict_node(X, 1)
     def predict_on_image(self, X, rs, cs):
-        def predict_node(X, rs, cs, node_id):
-            if self.leaf[node_id-1]:
+        def predict_node(rs, cs, node_id):
+            if self.leaf_tag[node_id-1]:
                 return self.nodes[node_id-1].predict_on_image(X, rs, cs)
             else:
-                bin = self.nodes[node_id-1]._predict_bin_on_image(X, rs, cs)
+                b = self.nodes[node_id-1].predict_bin_on_image(X, rs, cs)
                 h = np.empty(rs.size, np.float32)
-                h[bin==0] = predict_node(X, rs[bin==0], cs[bin==0], 2*node_id)
-                h[bin==1] = predict_node(X, rs[bin==1], cs[bin==1], 2*node_id+1)
+                h[b==0] = predict_node(rs[b==0], cs[b==0], 2*node_id+0)
+                h[b==1] = predict_node(rs[b==1], cs[b==1], 2*node_id+1)
                 return h
-        assert self.is_trained, "Run fit() first"
-        return predict_node(X, rs, cs, 1)
-    def as_dict(self):
-        d = {"ftr":[], "thr":[], "pred":[]}
-        for node,leaf_flag in zip(self.nodes, self.leaf):
-            nd = node.as_dict()
-            d["ftr"].append(nd["ftr"])
-            d["thr"].append(nd["thr"])
-            d["pred"].append(nd["pred"] if leaf_flag else None)
-        return d
-    @property
-    def is_trained(self):
-        return self.nodes is not None
-    # def __repr__(self):
-    #     pass
+        self.check_trained()
+        return predict_node(rs, cs, 1)
+    def check_trained(self):
+        assert all(self.nodes), "Run fit() first"
 
 
-default_channel_opts = {
-    "shrink": 2,
-    "n_per_oct": 4,
-    "smooth": 0,
-    "target_dtype": np.int16,
-    "channels": []
-}
+def sample_training_data(X, H, W, n_samples=None, trim_ratio=0.2):
+    if n_samples and n_samples < H.size:
+        idx = weighted_sampling(n_samples, p=W/W.sum(), trim_ratio=trim_ratio)
+        _X,_H = X[idx,...], H[idx]
+    else:
+        _X,_H = X, H
+    return _X, _H
 
 
-def weights(H):
-    return np.exp(H) / H.size / 2
+def fit_weak(X0, H0, X1, H1, wh=DStump, **wh_args):
+    W0 = weights(H0)
+    W1 = weights(-H1)
+    W0, W1 = normalized_weights(W0, W1)
+    return wh.fit(X0, W0, X1, W1, **wh_args)
 
 
-def normalized_weights(W0, W1):
-    w = W0.sum() + W1.sum()
-    return W0/w, W1/w
-
-
-def loss(H0, H1):
-    return (np.exp(H0).sum() + np.exp(-H1).sum()) / (H0.size+H1.size)
-
-
-class Model:
-    def __init__(self, shape, channel_opts, alpha=0.1, n_pos=2000, n_neg=2000, tr_set_size=0, quantizer=None, logger=None, wh=DStump, **wh_args):
+class Learner:
+    def __init__(self, alpha=0.1, n_samples=None, logger=None, wh=DStump, **wh_args):
         self.logger = logger = logging.getLogger(__name__)
-        self.shape = shape
-        self.channel_opts = channel_opts
         self.alpha = alpha
-        self.n_pos = n_pos
-        self.n_neg = n_neg
-        self.tr_set_size = tr_set_size
-        self.quantizer = quantizer
+        self.n_samples = n_samples
         self.wh = wh
         self.wh_args = wh_args
-        self.classifier = []
         self.P0 = 1
         self.P1 = 1
 
-    def fit_stage(self, X0, H0, X1, H1, theta=None):
-        W0 = weights(H0)
-        W1 = weights(-H1)
-        if self.tr_set_size > 0:
-            idx0 = np.random.choice(W0.size, self.tr_set_size, p=W0/W0.sum())
-            idx1 = np.random.choice(W1.size, self.tr_set_size, p=W1/W1.sum())
-            W0 = weights( H0[idx0])
-            W1 = weights(-H1[idx1])
-            weak = self.wh(self.shape, **self.wh_args).fit(X0[...,idx0], W0, X1[...,idx1], W1, self.quantizer)
-        else:
-            weak = self.wh(self.shape, **self.wh_args).fit(X0, W0, X1, W1, self.quantizer)
-        H0 += weak.predict(X0)
-        H1 += weak.predict(X1)
-        if theta is None:
+    def fit_stage(self, model, X0, H0, X1, H1, theta=None):
+        w0,w1 = weights(H0),weights(-H1)
+        _X0,_H0 = sample_training_data(X0, H0, w0, self.n_samples)
+        _X1,_H1 = sample_training_data(X1, H1, w1, self.n_samples)
+        print(_X0.shape, _H0.shape)
+        print(_X1.shape, _H1.shape)
+        weak = fit_weak(_X0, _H0, _X1, _H1, self.wh, **self.wh_args)
+
+        # Update H
+        H0 = H0 + weak.predict(X0)
+        H1 = H1 + weak.predict(X1)
+        # Fit threshold
+        if not theta:
             theta = fit_rejection_threshold(H0, self.P0, H1, self.P1, self.alpha)
-        return weak, theta
+        # calc p and update P
+        p0 = (H0>=theta).sum() / H0.size
+        p1 = (H1>=theta).sum() / H1.size
+        self.P0 *= p0
+        self.P1 *= p1
 
-    def fit(self, generator, T):
-        pool = SamplePool(self.shape, self.channel_opts, n_pos=self.n_pos, n_neg=self.n_neg)
-        history = []
-        for t in range(T):
-            logger.info(f"Training stage {t+1}/{T}")
-            pool.update(generator, self.as_dict())
-            X1,H1 = pool.get_positive()
-            X0,H0 = pool.get_negative()
-
-            logging.debug(f"Loss: {loss(H0,H1):0.5f}")
-            F0 = image_to_features(X0)
-            F1 = image_to_features(X1)
-
-            Y1,mask = self.predict(F1)
-            assert np.all(mask)
-            assert np.all(H1 == Y1)
-
-            theta = None if 2 < t <= 32 else -np.inf
-            weak, theta = self.fit_stage(F0, H0, F1, H1, theta)
-
-            # p = np.sum(H0 > theta) / H0.size
-            # if theta > -np.inf and p > 0.95:
-            #     logger.info(f"Neg probability too high {p:.2f} (require < 0.95). Forcing theta to -inf")
-            #     theta = -np.inf
-            self.classifier.append( (weak, theta) )
-            p0,p1 = pool.prune(theta)
-            self.P0 *= p0
-            self.P1 *= p1
-            logging.info(f"Negative rejection {1-self.P0:0.4f}")
-            logging.info(f"Positive rejection {1-self.P1:0.4f}")
-            history.append( (self.P0, self.P1,loss(H0,H1)) )
-        return history
-
-    def predict(self, X):
-        n = X.shape[1]
-        H = np.zeros(n, np.float32)
-        mask = np.ones(n, np.bool)
-        for weak, theta in self.classifier:
-            H[mask] += weak.predict(X[...,mask])
-            if theta == -np.inf:
-                continue
-            mask = np.logical_and(mask, H>=theta)
-        return H, mask
-
-    def as_dict(self):
-        model_dict = {
-            "shape": self.shape,
-            "channel_opts": self.channel_opts.copy(),
-            "quantizer": self.quantizer.copy() if self.quantizer is not None else None,
-            "classifier": self.classifier.copy()
-        }
-        return model_dict
-
-def export_model(d, filename):
-    model_dict = {}
-    model_dict["shape"] = d["shape"]
-    ch = d["channel_opts"]
-    ch["target_dtype"] = ch["target_dtype"].__name__
-    ch["channels"] = [ (f.__name__,p) for f,p in ch["channels"] ]
-    model_dict["channel_opts"] = ch
-    model_dict["classifier"] = [ (w.as_dict(),float(t))  for w,t in d["classifier"] ]
-    import json
-    with open(filename, "w") as f:
-        json.dump(model_dict, f)
+        model.append(weak, theta)
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
@@ -330,7 +258,7 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
     if max0 < min1:
         logger.debug(f"H0 and H1 are non-overlapping H0 < {max0}, H1 > {min1}")
         return min1
-    ts = np.concatenate([H0,H1])
+    ts = np.concatenate([H0.flatten(),H1.flatten()])
     ts = np.sort(np.unique(ts))
     #print(ts, ts.dtype)
     if ts.size < 3:

@@ -25,7 +25,6 @@ def grad_hist_4(image):
     Input image must be uint8
     Output image is always int16
     """
-
     assert image.dtype == np.uint8
 
     H = np.array( [1,2,1], "i2")
@@ -50,7 +49,7 @@ def grad_hist_4(image):
     return np.abs(chns)
 
 
-class Quantizer:
+class Quantizer(object):
     def __init__(self, range=(-1,1), n_bits=8, type="right"):
         a,b = range
         self.bins = np.linspace(a, b, (2**n_bits)+1)[:-1]
