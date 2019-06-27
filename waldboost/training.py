@@ -100,6 +100,8 @@ class DStump:
                 err = err_k
                 instance = DStump(ftr, thr, hs, err)
         return instance
+    def quantize(self, func):
+        self.h = func(self.h)
     @staticmethod
     def from_tuple(t):
         return DStump(*t)
@@ -153,6 +155,9 @@ class DTree:
                 fit_node(X0[b0==1], W0[b0==1], X1[b1==1], W1[b1==1], level+1, position=2*position+1)
         fit_node(X0, W0, X1, W1, level=1, position=1)
         return DTree(nodes, leaf_tag)
+    def quantize(self, func):
+        for n in self.nodes:
+            n.quantize(func)
     @staticmethod
     def from_tuple(t):
         nodes, leaf_tag = t
@@ -200,6 +205,85 @@ class DTree:
         assert all(self.nodes), "Run fit() first"
 
 
+def as_features(X):
+    n,*shape = X.shape
+    return X.reshape( (n,np.prod(shape)) )
+
+
+from sklearn.tree import DecisionTreeClassifier
+
+
+class SKLearnDTree:
+    def __init__(self, feature, threshold, left, right, prediction):
+        self.feature = feature
+        self.threshold = threshold
+        self.left = left
+        self.right = right
+        self.prediction = prediction
+    @staticmethod
+    def fit(X0, W0, X1, W1, **kwargs):
+        X = np.concatenate( [as_features(X0), as_features(X1)] )
+        Y = np.array([0]*W0.size + [1]*W1.size)
+        W = np.concatenate( [W0, W1] )
+        T = DecisionTreeClassifier(class_weight="balanced", **kwargs)
+        T.fit(X, Y, sample_weight=W)
+        _,*shape = X0.shape
+        tree = T.tree_
+        feature = [ np.unravel_index(f, shape) if f >= 0 else None for f in tree.feature ]
+        leaf = T.apply(X)
+        pred = np.empty(tree.node_count)
+        for n in range(tree.node_count):
+            mask = leaf == n
+            w0 = (W*mask*(Y==0)).sum() + 1e-3
+            w1 = (W*mask*(Y==1)).sum() + 1e-3
+            pred[n] = np.log(w1 / w0) / 2
+        return SKLearnDTree(feature, tree.threshold, tree.children_left, tree.children_right, pred)
+    @staticmethod
+    def from_proto(proto):
+        ftr = np.array(proto.feature).reshape((-1,3))
+        ftr = [ tuple(x) if x[0]>=0 else None for x in ftr ]
+        thr = np.array(proto.threshold)
+        left = np.array(proto.left)
+        right = np.array(proto.right)
+        pred = np.array(proto.prediction)
+        return SKLearnDTree(ftr, thr, left, right, pred)
+    def as_proto(self, proto):
+        proto.Clear()
+        proto_ftr = []
+        for f in self.feature:
+            if f is not None:
+                proto_ftr.extend(f)
+            else:
+                proto_ftr.extend( (-1,-1,-1) )
+        proto.feature.extend(proto_ftr)
+        proto.threshold.extend(self.threshold)
+        proto.left.extend(self.left)
+        proto.right.extend(self.right)
+        proto.prediction.extend(self.prediction)
+    def predict(self, X):
+        n = X.shape[0]
+        node = np.zeros(n, "i")
+        for n,(ftr,t,lnode,rnode) in enumerate(zip(self.feature, self.threshold, self.left, self.right)):
+            if ftr is None: continue
+            r,c,ch = ftr
+            idx = np.flatnonzero(node == n)
+            bin = X[idx,r,c,ch] <= t
+            node[idx[ bin]] = lnode
+            node[idx[~bin]] = rnode
+        return self.prediction[node]
+    def predict_on_image(self, X, rs, cs):
+        n = rs.size
+        node = np.zeros(n,"i")
+        for n,(ftr,t,lnode,rnode) in enumerate(zip(self.feature, self.threshold, self.left, self.right)):
+            if ftr is None: continue
+            r,c,ch = ftr
+            idx = np.flatnonzero(node == n)
+            bin = X[rs[idx]+r,cs[idx]+c,ch] <= t
+            node[idx[ bin]] = lnode
+            node[idx[~bin]] = rnode
+        return self.prediction[node]
+
+
 def sample_training_data(X, H, W, n_samples=None, trim_ratio=0.2):
     if n_samples and n_samples < H.size:
         idx = weighted_sampling(n_samples, p=W/W.sum(), trim_ratio=trim_ratio)
@@ -209,11 +293,24 @@ def sample_training_data(X, H, W, n_samples=None, trim_ratio=0.2):
     return _X, _H
 
 
+class Quantizer:
+    def __init__(self, xmax=1, bits=8):
+        self.xmax = xmax
+        self.multiplier = 2**bits / (2*xmax)
+    def __call__(self, x, inverse=False, clip=False):
+        if not inverse:
+            x = np.clip(x, -self.xmax, self.xmax)
+            return np.round(x * self.multiplier)
+        else:
+            return x / self.multiplier
+
+
 def fit_weak(X0, H0, X1, H1, wh=DStump, **wh_args):
     W0 = weights(H0)
     W1 = weights(-H1)
-    W0, W1 = normalized_weights(W0, W1)
-    return wh.fit(X0, W0, X1, W1, **wh_args)
+    #W0, W1 = normalized_weights(W0, W1)
+    weak = wh.fit(X0, W0, X1, W1, **wh_args)
+    return weak
 
 
 class Learner:
@@ -227,12 +324,12 @@ class Learner:
         self.P1 = 1
 
     def fit_stage(self, model, X0, H0, X1, H1, theta=None):
-        w0,w1 = weights(H0),weights(-H1)
-        _X0,_H0 = sample_training_data(X0, H0, w0, self.n_samples)
-        _X1,_H1 = sample_training_data(X1, H1, w1, self.n_samples)
-        print(_X0.shape, _H0.shape)
-        print(_X1.shape, _H1.shape)
-        weak = fit_weak(_X0, _H0, _X1, _H1, self.wh, **self.wh_args)
+        # w0,w1 = weights(H0),weights(-H1)
+        # _X0,_H0 = sample_training_data(X0, H0, w0, self.n_samples)
+        # _X1,_H1 = sample_training_data(X1, H1, w1, self.n_samples)
+        # print(_X0.shape, _H0.shape)
+        # print(_X1.shape, _H1.shape)
+        weak = fit_weak(X0, H0, X1, H1, self.wh, **self.wh_args)
 
         # Update H
         H0 = H0 + weak.predict(X0)

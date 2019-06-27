@@ -26,10 +26,19 @@ message DTree {
     repeated int32 leaf_tag = 3;
 }
 
+message SKLearnDTree {
+    repeated int32 feature = 1;
+    repeated float threshold = 2;
+    repeated int32 left = 3;
+    repeated int32 right = 4;
+    repeated float prediction = 5;
+}
+
 message WeakClassifier {
     oneof weak {
         DStump dstump = 1;
         DTree dtree = 2;
+        SKLearnDTree dtree1 = 4;
     }
     float theta = 3;
 }
