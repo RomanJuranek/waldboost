@@ -11,11 +11,33 @@ The detector supports:
 
 NOTE: The implementation is not intended to be fast.
 
+**Acknowledgment** Development of this software was funded by ECSEL FitOptiVis
+project and V3C Center of competence.
+
 # Installation
 
+Necessary requirements include:
+* numpy
+* scipy
+* scikit-image
+* scikit-learn
+* protobuf
+* bbx
 
+`waldboost.verification` module additionally require
+* tensorflow-gpu (or pure tensorflow)
 
-# Example
+The package can be installed through `pip`
+
+```sh
+pip install waldboost-*.tgz
+```
+
+# Documentation
+
+[Documentation](doc/api.md)
+
+# Quick start
 
 Following example show basic pipeline for training the detector.
 
@@ -26,25 +48,27 @@ import waldboost as wb
 # ...
 ```
 
-Setup training parameters. Define how image channels are calculated and detector window size.
+Setup training parameters. Define how image channels are calculated and detector window size. For detailed info see `wb.channels.channel_pyramid`.
 
 ```python
 channel_opts = {
     "shrink": 2,
     "n_per_oct": 8,
     "smooth": 1,
-    "target_dtype": np.float,
-    "channels": [ (wb.channels.grad_mag,()) ]
+    "target_dtype": np.float32,
+    "channels": [ wb.grad_mag ]
 }
 shape = (12,12,1)
 ```
-Initialize new model, sample pool (source of training data), and learner (training algorithm).
+
+Initialize new model, sample pool (source of training data), and learner (training algorithm and state).
 
 ```python
 model = wb.Model(shape, channel_opts)
 pool = wb.Pool(shape, min_tp=1000, min_fp=1000)
-learner = wb.Learner(alpha=0.2, wh=wb.DTree, depth=2))
+learner = wb.Learner(alpha=0.2, wh=wb.DSKlearnDTree, max_depth=2))
 ```
+
 Run the training. Each iteration updates training set from images produced by user-specified generator, and adds new stage to the model.
 
 ```python
@@ -55,17 +79,16 @@ for stage in range(len(model),T):
     learner.fit_stage(model, X0, H0, X1, H1)
 ```
 
-Finally model can be used for detection on new images and saved to file.
+Finally model can be used for detection on new images, and saved to file.
 
 ```python
 model.save("detector.pb")
-image,_ = next(training_images)
+image,*_ = next(training_images)
 bbs, score = model.detect(image)
 ```
 
-Function `wb.Model.load()` can load the model form file:
+Function `wb.load_model` can load the model form file. Custom objects can be passed to the function in case that channel functions must be imported from other package.
 
 ```python
 model = wb.Model.load("detector.pb")
-# model.detect()
 ```

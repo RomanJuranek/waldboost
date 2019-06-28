@@ -22,31 +22,34 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, Dense, Concatenate, Add, Dropout, Activation, BatchNormalization, Flatten
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
-
+from .samples import gather_samples
 
 
 def model_cnn(input_shape):
     img = Input(shape = input_shape)
     score = Input([1])
 
-    x = Conv2D(16, 3, padding="same")(img)
+    x = Conv2D(8, 3, padding="same")(img)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    x = Conv2D(8, 3, padding="same")(x)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    x = MaxPool2D()(x)
+    #x = Conv2D(8, 1, padding="same", activation="relu")(x)
+
+    x = Conv2D(16, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
     x = Conv2D(16, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
-    x = MaxPool2D()(x)
-
-    x = Conv2D(32, 3, padding="same")(x)
-    x = BatchNormalization()(x)
-    x = Activation("relu")(x)
-    x = Conv2D(32, 3, padding="same")(x)
-    x = BatchNormalization()(x)
-    x = Activation("relu")(x)
+    #x = Conv2D(8, 1, padding="same", activation="relu")(x)
 
     x = Flatten()(x)
     x = Dropout(0.2)(x)
-    x = Dense(64, activation="relu")(x)
+    x = Dense(128, activation="relu")(x)
+    x = Dropout(0.2)(x)
     x = Dense(1, activation="linear")(x)
     x = Add()([x, score])
 
@@ -54,7 +57,7 @@ def model_cnn(input_shape):
 
 
 def exploss(y_true, y_pred):
-    return K.exp(-y_true * y_pred)
+    return K.maximum(K.minimum(K.exp(-y_true * y_pred), 1e3), 1e-6)
 
 
 def train(M, X0, H0, X1, H1, epochs=10, batch_size=64, steps=1000):
@@ -76,3 +79,27 @@ def train(M, X0, H0, X1, H1, epochs=10, batch_size=64, steps=1000):
             loss.append(l)
         print(np.mean(loss))
     print("Done")
+
+
+
+def detect_and_verify(image, model, verifier):
+    bbs = []
+    scores = []
+    samples = []
+    for chns, scale in model.channels(image):
+        r,c,h = model.predict_on_image(chns)
+        bbs.append( model.get_bbs(r, c, scale) )
+        scores.append( h )
+        samples.append( gather_samples(chns, r, c, model.shape) )
+    bbs = [x for x in bbs if x.size]
+    scores = [x for x in scores if x.size]
+    samples = [x for x in samples if x.size]
+
+    if not bbs: return [],[]
+
+    bbs = np.concatenate(bbs)
+    scores = np.concatenate(scores)
+    samples = np.concatenate(samples)
+    scores = verifier.predict( [samples.astype("f"), scores.astype("f")], batch_size=256 )
+
+    return bbs, scores.flatten()

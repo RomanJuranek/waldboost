@@ -53,6 +53,14 @@ def grad_hist(image, n_bins=6, full=False):
         return np.abs(chns)
 
 
+def octaves(image):
+    dtype = image.dtype
+    base_image = image.copy()
+    while True:
+        yield base_image
+        base_image = block_reduce(base_image, (2,2,1), np.mean).astype(dtype)
+
+
 def channel_pyramid(image, channel_opts):
     shrink = channel_opts["shrink"]
     n_per_oct = channel_opts["n_per_oct"]
@@ -78,7 +86,7 @@ def channel_pyramid(image, channel_opts):
             im = (255*resize(base_image, (nh, nw))).astype("u1")
 
             if channels:
-                chns = [ func(im[...,0], *pfunc) for func,pfunc in channels ]
+                chns = [ func(im[...,0]) for func in channels ]
                 chns.append(im[...,1:])
             else:
                 chns = [ im[...,None] ]

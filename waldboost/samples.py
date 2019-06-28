@@ -12,7 +12,7 @@ def sample_from_bbs(chns, shape, bbs):
     map = np.zeros((max(u-m,0),max(v-n,0)), np.bool)
     for bb in bbs:
         x,y,w,h,ign = bb.astype(np.int)
-        if ign: continue
+        if ign or not w or not h: continue
         if abs(math.log((m*n) / (h*w))) < 0.2:  # Area of gt and sample must match approximately
             map[y-m:y+h,x-n:x+w] = 1
     r,c = np.nonzero(map)
@@ -50,18 +50,24 @@ class Pool:
 
     def update(self, detector, gen, take_tp=True, take_fp=True):
         self.logger.info("Updating sample in the pool")
+        self.samples = [ self.gather_samples(0) + (0,),
+                         self.gather_samples(1) + (1,)]
         pruned_samples = []
         for x,h,y in self.samples:
              _h,mask = detector.predict(x)
              if np.any(mask):
                  pruned_samples.append(  (x[mask,...], _h[mask], y) )
         self.samples = pruned_samples
+        req_tp = self.require(1) and take_tp
+        req_fp = self.require(0) and take_fp
+        if not req_tp and not req_fp:
+            return
         self.logger.info("Sampling new data")
         for image, gt, *_ in gen:
             req_tp = self.require(1) and take_tp
             if req_tp and gt.size == 0:
                 continue;
-            logging.debug(f"Req TP: {self.require(1)}, Req FP: {self.require(0)}")
+            logging.info(f"Req TP: {self.require(1)}, Req FP: {self.require(0)}")
             for chns, scale, (r,c,h) in detector.scan_channels(image):
                 n_locations = len(r)
                 if n_locations > self.max_candidates and not detector:  # limit the number of candidates

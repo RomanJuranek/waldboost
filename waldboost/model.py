@@ -9,7 +9,7 @@ waldboost.model.Model
 import numpy as np
 from .channels import channel_pyramid
 from . import model_pb2
-from .training import DStump, DTree, SKLearnDTree
+from .training import DTree
 import waldboost
 import zlib
 from google.protobuf.message import DecodeError
@@ -20,10 +20,9 @@ def symbol_name(s):
 
 
 def symbol_from_name(name, custom_objects={}):
-    if name.startswith("builtins"):
-        _,name = name.split(".")
-    ls = {"numpy":np,"waldboost":waldboost}
-    ls.update(custom_objects)
+    from importlib import import_module
+    m,rest = name.split(".",1)
+    ls = {m: import_module(m)}
     return eval(name, {}, ls)
 
 
@@ -139,9 +138,12 @@ class Model:
             r,c,h = self.predict_on_image(chns)
             bbs.append(self.get_bbs(r,c,scale))
             scores.append(h)
-        bbs = np.concatenate( [x for x in bbs if x.size] )
-        scores = np.concatenate( [x for x in scores if x.size] )
-        return bbs, scores
+        bbs = [x for x in bbs if x.size]
+        scores = [x for x in scores if x.size]
+        if bbs:
+            bbs = np.concatenate(bbs)
+            scores = np.concatenate(scores)
+        return np.array(bbs), np.array(scores)
 
     def predict(self, X):
         """ Predict model on samples
@@ -260,11 +262,11 @@ class Model:
         for weak,theta in self.classifier:
             w_pb = proto.classifier.add()
             w_pb.theta = theta
-            if isinstance(weak, DTree):
-                weak.as_proto(w_pb.dtree)
-            if isinstance(weak, DStump):
-                weak.as_proto(w_pb.dstump)
-            #if isinstance(weak, SKLearnDTree):
+            # if isinstance(weak, DTree):
+            #     weak.as_proto(w_pb.dtree)
+            # if isinstance(weak, DStump):
+            #     weak.as_proto(w_pb.dstump)
+            # #if isinstance(weak, SKLearnDTree):
             weak.as_proto(w_pb.dtree1)
 
     @staticmethod
@@ -281,16 +283,17 @@ class Model:
         M = Model(shape, channel_opts)
         for weak_proto in proto.classifier:
             theta = weak_proto.theta
-            tp = weak_proto.WhichOneof("weak")
-            print(tp)
-            if tp == "dtree":
-                weak = DTree.from_proto(weak_proto.dtree)
-            elif tp == "dstump":
-                weak = DStump.from_proto(weak_proto.dstump)
-            elif tp == "dtree1":
-                weak = SKLearnDTree.from_proto(weak_proto.dtree1)
-            else:
-                print(f"Unknown type {tp}")
+            weak = DTree.from_proto(weak_proto.dtree1)
+            #tp = weak_proto.WhichOneof("weak")
+            # print(tp)
+            # if tp == "dtree":
+            #     weak = DTree.from_proto(weak_proto.dtree)
+            # elif tp == "dstump":
+            #     weak = DStump.from_proto(weak_proto.dstump)
+            # elif tp == "dtree1":
+            #     weak = SKLearnDTree.from_proto(weak_proto.dtree1)
+            # else:
+            #     print(f"Unknown type {tp}")
             M.append(weak, theta)
         return M
 
