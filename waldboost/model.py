@@ -6,20 +6,22 @@ waldboost.model.Model
 """
 
 
-import numpy as np
-from .channels import channel_pyramid
-from . import model_pb2
-from .training import DTree
-import waldboost
 import zlib
+import logging
+import numpy as np
 from google.protobuf.message import DecodeError
+
+from . import model_pb2
+from .channels import channel_pyramid
+from .training import DTree
 
 
 def symbol_name(s):
     return s.__module__ + "." + s.__qualname__
 
 
-def symbol_from_name(name, custom_objects={}):
+def symbol_from_name(name):
+    print(f"Initializing symbol {name}")
     from importlib import import_module
     m,rest = name.split(".",1)
     ls = {m: import_module(m)}
@@ -60,6 +62,18 @@ class Model:
         self.shape = shape
         self.channel_opts = channel_opts
         self.classifier = []
+        self.n_loc = 0
+        self.n_weak = 0
+
+    def stats(self):
+        return self.n_weak/self.n_loc if self.n_loc>=0 else 0
+
+    def reset_stats(self):
+        self.n_loc = 0
+        self.n_weak = 0
+
+    def __getitem__(self, i):
+        return self.classifier[i]
 
     def channels(self, image):
         """ Iterator over channel pyramid of the given image
@@ -135,6 +149,7 @@ class Model:
         """
         bbs,scores = [],[]
         for chns, scale in self.channels(image):
+            #print(chns.shape, scale)
             r,c,h = self.predict_on_image(chns)
             bbs.append(self.get_bbs(r,c,scale))
             scores.append(h)
@@ -208,8 +223,11 @@ class Model:
         rs = idx % (u-m)
         cs = idx // (u-m)
         hs = np.zeros_like(rs, np.float32)
+        self.n_loc += hs.size  # Stats
         for weak, theta in self.classifier:
+            if not rs.size: break
             hs += weak.predict_on_image(X, rs, cs)
+            self.n_weak += hs.size  # Stats
             if theta == -np.inf:
                 continue
             mask = hs >= theta
@@ -262,38 +280,23 @@ class Model:
         for weak,theta in self.classifier:
             w_pb = proto.classifier.add()
             w_pb.theta = theta
-            # if isinstance(weak, DTree):
-            #     weak.as_proto(w_pb.dtree)
-            # if isinstance(weak, DStump):
-            #     weak.as_proto(w_pb.dstump)
-            # #if isinstance(weak, SKLearnDTree):
             weak.as_proto(w_pb.dtree1)
 
     @staticmethod
-    def from_proto(proto, custom_objects={}):
+    def from_proto(proto):
         """ Create new instance from model_pb2.Model """
         shape = tuple(proto.shape)
         channel_opts = {
             "shrink": proto.channel_opts.shrink,
             "n_per_oct": proto.channel_opts.n_per_oct,
             "smooth": proto.channel_opts.smooth,
-            "target_dtype": symbol_from_name(proto.channel_opts.target_dtype, custom_objects),
-            "channels": [ symbol_from_name(s, custom_objects) for s in proto.channel_opts.func ],
+            "target_dtype": symbol_from_name(proto.channel_opts.target_dtype),
+            "channels": [ symbol_from_name(s) for s in proto.channel_opts.func ],
         }
         M = Model(shape, channel_opts)
         for weak_proto in proto.classifier:
             theta = weak_proto.theta
             weak = DTree.from_proto(weak_proto.dtree1)
-            #tp = weak_proto.WhichOneof("weak")
-            # print(tp)
-            # if tp == "dtree":
-            #     weak = DTree.from_proto(weak_proto.dtree)
-            # elif tp == "dstump":
-            #     weak = DStump.from_proto(weak_proto.dstump)
-            # elif tp == "dtree1":
-            #     weak = SKLearnDTree.from_proto(weak_proto.dtree1)
-            # else:
-            #     print(f"Unknown type {tp}")
             M.append(weak, theta)
         return M
 
@@ -308,7 +311,7 @@ class Model:
             f.write(data)
 
     @staticmethod
-    def load(filename, custom_objects={}):
+    def load(filename):
         """ Load model from protobuf file and return new instance """
         with open(filename, "rb") as f:
             data = f.read()
@@ -317,47 +320,5 @@ class Model:
             proto.ParseFromString(data)
         except DecodeError:
             data = zlib.decompress(data)
-            proto.ParseFromString(data)
-        return Model.from_proto(proto, custom_objects)
-
-
-# from numba import jit
-#
-# class DTreeModel:
-#     def __init__(model):
-#         self.model = model;
-#         self.T = len(self.model)
-#         self.n = 3
-#         self.ftr = np.empty((T,n,3), "i")
-#         self.thr = np.empty((T,n), "f")
-#         self.h = np.empty((T,n,2), "f")
-#         self.theta = np.empty(t, "f")
-#         self.leaf = np.empty((T,n), "b")
-#         for t, (weak, theta) in enumerate(self.model.classifier):
-#             assert(isinstance(weak, DTree))
-#             self.theta[t] = theta
-#             for j in range(n):
-#                 self.ftr[t,j,:] = weak.nodes[j].ftr
-#                 self.thr[t,j] = weak.nodes[j].thr
-#                 self.h[t,j,:] = weak.nodes[j].h
-#                 self.leaf[]
-#
-#     @jit
-#     def predict_on_image(X):
-#         h,w = x.shape[:2]
-#         res = []
-#         for y in range(h):
-#             for x in range(w):
-#                 h = 0
-#                 for t in range(self.T): # weak loop
-#                     node = 0
-#                     while self.leaf[t,node]:
-#                         r,c,ch = self.ftr[t, node]
-#                         bin = X[y+r,x+c,ch] > self.thr[node]
-#                         node = 2*node + bin
-#                     h += self.h[t,node]
-#                     if h < self.theta[t]:
-#                         break
-#                 else:
-#                     res.append( (y,x,h) )
-#         return res
+        proto.ParseFromString(data)
+        return Model.from_proto(proto)

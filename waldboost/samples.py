@@ -80,8 +80,8 @@ class Pool:
                     r_tp,c_tp,h_tp = sample_from_bbs(chns, detector.shape, scale_gt)
                     dt_tp = detector.get_bbs(r_tp, c_tp, scale)
                     real_tp,_ = self.classify_dt(dt_tp, gt)
-                    if len(real_tp) > 100:
-                         real_tp = np.random.choice(real_tp, 100)
+                    if len(real_tp) > 20:
+                         real_tp = np.random.choice(real_tp, 20)
                     r = np.concatenate( [r, r_tp[real_tp]] )
                     c = np.concatenate( [c, c_tp[real_tp]] )
                     h = np.concatenate( [h, h_tp[real_tp]] )

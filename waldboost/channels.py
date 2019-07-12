@@ -1,9 +1,10 @@
 import logging
 import numpy as np
+import numba as nb
 from skimage.measure import block_reduce
 from skimage.transform import resize
 from scipy.ndimage import convolve1d
-
+import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,47 @@ def grad_hist(image, n_bins=6, full=False):
         return np.abs(chns)
 
 
-def octaves(image):
-    dtype = image.dtype
+@nb.njit(nogil=True)
+def downscale(arr):
+    u = arr.shape[0]
+    v = arr.shape[1]
+    u_lim = u - (u%2)
+    v_lim = v - (v%2)
+    return ((arr[0:u_lim:2,0:v_lim:2,...] +
+            arr[1:u_lim:2,0:v_lim:2,...] +
+            arr[0:u_lim:2,1:v_lim:2,...] +
+            arr[1:u_lim:2,1:v_lim:2,...]) / 4).astype(arr.dtype)
+
+
+@nb.stencil(neighborhood=((-1,1),(-1,1)))
+def _smooth(arr):
+    v =   arr[-1,-1] + 2*arr[-1,0] +   arr[-1,1] + \
+        2*arr[ 0,-1] + 4*arr[ 0,0] + 2*arr[ 0,1] + \
+          arr[ 1,-1] + 2*arr[ 1,0] +   arr[ 1,1]
+    return v / 16
+
+
+@nb.njit(nogil=True)
+def _smooth_image(arr):
+    return _smooth(arr).astype(arr.dtype)
+
+
+@nb.njit(nogil=True)
+def smooth_image_3d(arr):
+    smoothed = np.empty_like(arr)
+    for k in nb.prange(arr.shape[2]):
+        smoothed[...,k] = _smooth(arr[...,k])
+    return smoothed
+
+
+def _image_octaves(image, min_size=(16,16)):
     base_image = image.copy()
     while True:
         yield base_image
-        base_image = block_reduce(base_image, (2,2,1), np.mean).astype(dtype)
+        h,w = base_image.shape[:2]
+        if ((w//2,h//2) < min_size):
+            break
+        base_image = downscale(base_image)
 
 
 def channel_pyramid(image, channel_opts):
@@ -67,38 +103,29 @@ def channel_pyramid(image, channel_opts):
     smooth = channel_opts["smooth"]
     channels = channel_opts["channels"]
     target_dtype = channel_opts["target_dtype"]
-
-    assert shrink in [1,2,3,4], "Shrink factor must be integer 1 <= shrink <= 4"
-
-    base_image = image
+    assert shrink in [1,2], "Shrink factor must be integer 1 <= shrink <= 2"
 
     factor = 2**(-1/n_per_oct)
-
-    while True:
+    for base_image in _image_octaves(image):
         h,w,*_ = base_image.shape
         for i in range(n_per_oct):
             s = factor ** i
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
-            if nh < 50 or nw < 50:
-                return
-
             real_scale = nw / image.shape[1]
-            im = (255*resize(base_image, (nh, nw))).astype("u1")
+
+            im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)[...,None]
 
             if channels:
-                chns = [ func(im[...,0]) for func in channels ]
+                chns = [func(im[...,0]) for func in channels]
                 chns.append(im[...,1:])
+                chns = np.concatenate(chns, axis=-1)
             else:
-                chns = [ im[...,None] ]
+                chns = im
 
-            chns = np.concatenate(chns, axis=-1)
-            if shrink > 1:
-                chns = block_reduce(chns, (shrink,shrink,1), np.mean).astype(target_dtype)
+            if shrink == 2:
+                chns = downscale(chns)
 
-            if smooth > 0:
-                H = triangle_kernel(smooth)
-                chns = separable_convolve(chns, H)
+            if smooth == 1:
+                chns = smooth_image_3d(chns)
 
             yield np.atleast_3d(chns), real_scale/shrink
-
-        base_image = block_reduce(base_image, (2,2,1), np.mean).astype(image.dtype)

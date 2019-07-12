@@ -1,0 +1,4 @@
+include README.md
+include waldboost/*.py
+include waldboost/VERSION
+exclude waldboost/__pycache__

@@ -69,6 +69,10 @@ def draw_detections(img, model, v=None, nms=False, min_score=None, v0=None, v1=N
     else:
         bbs,scores = detect_and_verify(img, model, v)
 
+    I = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
+    if scores.size == 0:
+        return I
+
     if v0 is None:
         v0, v1 = scores.min(), scores.max()
 
@@ -81,7 +85,7 @@ def draw_detections(img, model, v=None, nms=False, min_score=None, v0=None, v1=N
 
     N = mpl.colors.Normalize(vmin=v0, vmax=v1)
     colors = cm.plasma;
-    I = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
+
     order = np.argsort(scores)
     for (x,y,w,h),score in zip(bbs[order].astype("i"), scores[order]):
         clr = (255*np.array(colors(N(score)))[2::-1]).astype("u1")
