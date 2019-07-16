@@ -11,8 +11,7 @@ The detector supports:
 
 NOTE: The implementation is not intended to be fast.
 
-**Acknowledgment** Development of this software was funded by ECSEL FitOptiVis
-project and V3C Center of competence.
+**Acknowledgment** Development of this software was funded by ECSEL FitOptiVis project and V3C Center of Competence.
 
 # Installation
 
@@ -21,6 +20,7 @@ Necessary requirements include:
 * scipy
 * scikit-image
 * scikit-learn
+* opencv-python
 * protobuf
 * bbx
 

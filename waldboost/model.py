@@ -65,10 +65,27 @@ class Model:
         self.n_loc = 0
         self.n_weak = 0
 
-    def stats(self):
+    @property
+    def eval_cost(self):
+        """
+        Cost of classifier evaluation - average number of weak classifiers per location.
+
+        The metric is updated with calling detect or predict_on_image (not predict).
+        Calling reset() will reset the stats.
+
+        Example
+        -------
+        model.reset()
+        for image in imaages:
+            model.detect(image)
+
+        print(model.eval_cost)
+        """
         return self.n_weak/self.n_loc if self.n_loc>=0 else 0
 
-    def reset_stats(self):
+    def reset(self):
+        """
+        """
         self.n_loc = 0
         self.n_weak = 0
 

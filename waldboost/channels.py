@@ -37,7 +37,7 @@ def grad_mag(image, norm=5, eps=1e-3):
     return mag[...,None]
 
 
-def grad_hist(image, n_bins=6, full=False):
+def grad_hist(image, n_bins=6, full=False, bias=0):
     image = image.astype("f")
     gx, gy = gradients(image)
     max_theta = 2*np.pi if full else np.pi
@@ -47,11 +47,12 @@ def grad_hist(image, n_bins=6, full=False):
     u,v = gx.shape
     chns = np.empty((u,v,n_bins), gx.dtype)
     for i,(c,s) in enumerate(zip(cs,sn)):
-        chns[...,i] = gx*c - gy*s;
+        chns[...,i] = gx*c - gy*s
+    chns_value = np.fmax(np.abs(chns)-bias, 0)
     if full:
-        return np.fmax(chns, 0)
+        return np.sign(chns) * chns_value
     else:
-        return np.abs(chns)
+        return chns_value
 
 
 @nb.njit(nogil=True)
@@ -75,14 +76,9 @@ def _smooth(arr):
 
 
 @nb.njit(nogil=True)
-def _smooth_image(arr):
-    return _smooth(arr).astype(arr.dtype)
-
-
-@nb.njit(nogil=True)
 def smooth_image_3d(arr):
     smoothed = np.empty_like(arr)
-    for k in nb.prange(arr.shape[2]):
+    for k in range(arr.shape[2]):
         smoothed[...,k] = _smooth(arr[...,k])
     return smoothed
 
@@ -102,7 +98,7 @@ def channel_pyramid(image, channel_opts):
     n_per_oct = channel_opts["n_per_oct"]
     smooth = channel_opts["smooth"]
     channels = channel_opts["channels"]
-    target_dtype = channel_opts["target_dtype"]
+    # target_dtype = channel_opts["target_dtype"]
     assert shrink in [1,2], "Shrink factor must be integer 1 <= shrink <= 2"
 
     factor = 2**(-1/n_per_oct)

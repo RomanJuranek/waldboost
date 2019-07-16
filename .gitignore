@@ -1,4 +1,5 @@
 .ipynb_checkpoints
+*.ipynb
 __pycache__
 dist
 build
@@ -9,3 +10,7 @@ models
 *.pkl
 *.json
 *_pb2.py
+*.pb
+*.pbz
+.vscode
+datasets

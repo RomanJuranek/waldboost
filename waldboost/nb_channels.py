@@ -1,3 +1,8 @@
+"""
+Channel computation accelerated with numba
+"""
+
+
 import numba as nb
 import numpy as np
 
@@ -17,7 +22,7 @@ def _grad_y(arr):
 
 
 @nb.njit(nogil=True)
-def grad_hist_4(arr):
+def grad_hist_4(arr, bias=4):
     dst_shape = (arr.shape[0], arr.shape[1], 4)
     dx = _grad_x(arr)
     dy = _grad_y(arr)
@@ -26,4 +31,4 @@ def grad_hist_4(arr):
     y[...,1] = 0.7 * dx - 0.7 * dy
     y[...,2] = dy
     y[...,3] = 0.7 * dx + 0.7 * dy
-    return np.maximum(0, np.abs(y)-4)
+    return np.fmax(np.abs(y)-bias, 0)

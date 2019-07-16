@@ -146,7 +146,6 @@ class FPGA_DTree:
         tree : waldboost.training.DTree
             Initialized instance of decision tree. tree.apply, tree.predict and
             others can be called.
-
         """
         shape = X0.shape[1:]
 
@@ -173,11 +172,14 @@ class FPGA_DTree:
                                      "left": -1, "right": -1}
                 # logging.info(f"Leaf node {nodes[self_index]}")
             else:
-                ftrs = allowed_features[depth] if allowed_features is not None else np.r_[:X.shape[1]]
-                #print(f"Using {ftrs.size} features")
-                _X = X[:,ftrs]
+                _X = X
+                if allowed_features is not None:
+                    ftrs = allowed_features[depth]
+                    _X = X[:,ftrs]
                 feature, threshold, _ = _find_split(_X[self_samples], Y[self_samples], _W[self_samples])
-                feature = ftrs[feature]
+                if allowed_features is not None:
+                    ftrs = allowed_features[depth]
+                    feature = ftrs[feature]
                 # TODO: check for feature/metric feasibility
                 # split data
                 bin = X[self_samples, feature] <= threshold
@@ -244,6 +246,7 @@ def train(model,
           max_depth=2,
           target_p0=1e-5,
           bank_pattern_shape=(2,2),
+          clip=3,
           quantizer=32,
           callbacks=[],
           logger=None):
@@ -254,7 +257,7 @@ def train(model,
     Inputs
     ------
     Inputs have exactly same meaning as in waldboost.train
-    bank_pattern_shape : tuple
+    bank_pattern_shape : tuple or None
         Size of pattern for bank scheduling. E.g. (2,2) means that there will
         be 4 banks in 2x2 block.
     quantizer : int
@@ -284,12 +287,13 @@ def train(model,
 
     logger = logger or logging.getLogger("WaldBoost/FPGA")
 
-    learner = Learner(alpha=alpha, wh=FPGA_DTree, max_depth=max_depth, min_samples_leaf=10, quantizer=quantizer)
+    learner = Learner(alpha=alpha, wh=FPGA_DTree, max_depth=max_depth, clip=clip, quantizer=quantizer)
     pool = Pool(model.shape, min_tp=n_pos, min_fp=n_neg)
     pool.max_tp_dist = max_tp_dist
 
-    banks = PixelBanks(model.shape, bank_pattern_shape)
-    scheduler = BankScheduler(np.prod(bank_pattern_shape))
+    if bank_pattern_shape is not None:
+        banks = PixelBanks(model.shape, bank_pattern_shape)
+        scheduler = BankScheduler(np.prod(bank_pattern_shape))
 
     stats = defaultdict(list)
 
@@ -298,8 +302,11 @@ def train(model,
         pool.update(model, training_images)
         X0,H0 = pool.gather_samples(0)
         X1,H1 = pool.gather_samples(1)
-        stage_banks = scheduler.schedule(max_depth)
-        ftrs = [banks.bank_pixels(b) for b in stage_banks]
+        if bank_pattern_shape is not None:
+            stage_banks = scheduler.schedule(max_depth)
+            ftrs = [banks.bank_pixels(b) for b in stage_banks]
+        else:
+            ftrs = None
         loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta(stage,learner.P0))
         for cb in callbacks:
             cb(model, learner, stage)

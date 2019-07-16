@@ -48,7 +48,7 @@ from .training import DTree, Learner
 from .samples import Pool
 from .model import Model
 from .channels import grad_mag, grad_hist
-from . import fpga, channels
+from . import fpga, channels, nb_channels
 
 
 with open(resource_filename(__name__, "VERSION"), "r") as f:
@@ -134,7 +134,7 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
     """
     channel_opts = channel_opts or models[0].channel_opts
     if response_scale is None:
-        response_scale = [1] * len(models)
+        response_scale = [1] * len(models)  # No scale given -> do not change values
     response_scale = np.array(response_scale, "f")
 
     bbs = defaultdict(list)
@@ -151,13 +151,16 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
             else:
                 bbs[0].append(bbs_k)
                 scores[0].append(h)
-
     for k in bbs:  # k is model key to bbs and scores
+        # Merge groups of bounding boxes
         bbs_k = [x for x in bbs[k] if x.size]
         scores_k = [x for x in scores[k] if x.size]
         if bbs_k:
             bbs[k] = np.concatenate(bbs_k)
             scores[k] = np.concatenate(scores_k) * response_scale[k]
+        else:
+            bbs[k] = np.empty((0,4))
+            scores[k] = np.empty(0)
     if not separate:
         bbs, scores = bbs[0], scores[0]
 
