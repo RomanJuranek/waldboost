@@ -36,11 +36,11 @@ def show_cb(model, learner, stage):
 M = wb.Model(shape, channel_opts)
 
 stats = wb.train(M,
-                    training_images,
-                    length=32,
-                    target_p0=16,
-                    callbacks=[show_cb],
-                    n_pos=3000,
-                    n_neg=12000,
-                    max_depth=2,
-                    logger=logger)
+                training_images,
+                length=32,
+                target_p0=16,
+                callbacks=[show_cb],
+                n_pos=3000,
+                n_neg=12000,
+                max_depth=2,
+                logger=logger)

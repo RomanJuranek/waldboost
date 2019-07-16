@@ -42,7 +42,7 @@ class BankScheduler:
         return [ [next(self.bank_counter) % self.n_banks] for _ in range(max_depth)]
 
 
-def grad_hist_4(image):
+def grad_hist_4(image, bias=4):
     """
     Integer version of grad_hist(image, n_bins=4, full=False)
     Input image must be uint8
@@ -64,9 +64,9 @@ def grad_hist_4(image):
     cs = np.cos(theta[:-1])
     sn = np.sin(theta[:-1])
     for i,(c,s) in enumerate(zip(cs,sn)):
-        chns[...,i] = gx*c - gy*s;
+        chns[...,i] = gx*c - gy*s
 
-    return np.abs(chns)
+    return np.fmax(np.abs(chns-bias), 0)
 
 
 def H(*p):
