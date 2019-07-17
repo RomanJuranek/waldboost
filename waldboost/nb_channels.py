@@ -32,3 +32,11 @@ def grad_hist_4(arr, bias=4):
     y[...,2] = dy
     y[...,3] = 0.7 * dx + 0.7 * dy
     return np.fmax(np.abs(y)-bias, 0)
+
+
+@nb.jit(nogil=True)
+def grad_mag(arr):
+    dx = _grad_x(arr)
+    dy = _grad_y(arr)
+    dst = np.sqrt(dx**2 + dy**2).astype(nb.int32)
+    return dst
