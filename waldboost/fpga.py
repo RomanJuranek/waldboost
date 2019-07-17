@@ -9,7 +9,7 @@ from itertools import count
 from queue import Queue
 from collections import deque, defaultdict
 
-from .training import DTree, Learner, as_features
+from .training import DTree, Learner, as_features, BasicRejectionSchedule
 from .samples import Pool
 
 
@@ -244,7 +244,7 @@ def train(model,
           n_pos=1000,
           n_neg=1000,
           max_depth=2,
-          target_p0=1e-5,
+          theta_schedule=BasicRejectionSchedule(),
           bank_pattern_shape=(2,2),
           clip=3,
           quantizer=32,
@@ -276,15 +276,6 @@ def train(model,
     waldboost.train     Basline training pipeline
 
     """
-
-    def theta(n, p0):
-        assert target_p0 > 0, "target_p0 must be positive"
-        if 0 < target_p0 < 1:
-            theta = None if p0 > target_p0 else -np.inf
-        else:
-            theta = None if n < target_p0 else -np.inf
-        return theta
-
     logger = logger or logging.getLogger("WaldBoost/FPGA")
 
     learner = Learner(alpha=alpha, wh=FPGA_DTree, max_depth=max_depth, clip=clip, quantizer=quantizer)
@@ -307,7 +298,7 @@ def train(model,
             ftrs = [banks.bank_pixels(b) for b in stage_banks]
         else:
             ftrs = None
-        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta(stage,learner.P0))
+        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta_schedule(stage,learner.P0))
         for cb in callbacks:
             cb(model, learner, stage)
         stats["loss"].append(loss)

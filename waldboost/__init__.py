@@ -44,7 +44,7 @@ import numpy as np
 from collections import defaultdict
 from pkg_resources import resource_filename
 
-from .training import DTree, Learner
+from .training import DTree, Learner, BasicRejectionSchedule
 from .samples import Pool
 from .model import Model
 from .channels import grad_mag, grad_hist
@@ -167,19 +167,6 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
     return bbs, scores
 
 
-default_channel_opts = {
-    "shrink": 2,
-    "n_per_oct": 8,
-    "smooth": 0,
-    "target_dtype": np.float32,
-    "channels": [ grad_mag ]
-    }
-
-
-def _class_prob_cb(model, learner, stage):
-    print(f"{learner.P0}")
-
-
 def train(model,
           training_images,
           length=64,
@@ -188,8 +175,8 @@ def train(model,
           n_pos=1000,
           n_neg=1000,
           max_depth=2,
-          target_p0=1e-5,
-          callbacks=[_class_prob_cb],
+          theta_schedule=BasicRejectionSchedule(),
+          callbacks=[],
           logger=None):
     """ Train or continue training detection model
 
@@ -217,13 +204,8 @@ def train(model,
         Number of positive (resp. negative) samples for stage training
     max_depth : scalar int
         Depth of decision trees in the model
-    target_p0 : scalar
-        Condition for stopping rejection of training samples. If 0 < stop_sampling < 1
-        (usually close to zero, like 1e-5), rejection stops when p0 (false positive
-        probability) reaches below this threshold. When stop_sampling>=1, rejection
-        stops at the specified stage.
     callbacks : list of functions
-        List of functions with signature: callback(model, stage, learner)
+        List of functions with signature: callback(model, learner, stage)
     logger : logging.Logger
 
     Outputs
@@ -258,15 +240,6 @@ def train(model,
     ----------
     [1] Sochman et al.: Waldboost-learning for time constrained sequential detection, CVPR 2005
     """
-
-    def theta(n, p0):
-        assert target_p0 > 0, "target_p0 must be positive"
-        if 0 < target_p0 < 1:
-            theta = None if p0 > target_p0 else -np.inf
-        else:
-            theta = None if n < target_p0 else -np.inf
-        return theta
-
     logger = logger or logging.getLogger("WaldBoost")
 
     learner = Learner(alpha=alpha, wh=DTree, max_depth=max_depth, min_samples_leaf=10)
@@ -279,7 +252,7 @@ def train(model,
         pool.update(model, training_images)
         X0,H0 = pool.gather_samples(0)
         X1,H1 = pool.gather_samples(1)
-        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta(stage, learner.P0))
+        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta_schedule(stage, learner.P0))
         for cb in callbacks:
             cb(model, learner, stage)
         stats["loss"].append(loss)

@@ -168,3 +168,36 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
         theta = ts[np.max(idx)]
     logger.debug(f"theta = {theta:.4f}")
     return theta
+
+
+class BasicRejectionSchedule:
+    def __init__(self, rejection_interval=(0,None), target_p0=1e-5):
+        """
+        Inputs
+        ------
+        rejection_interval : tuple or None
+            Interval on which theta should be learned. Outside of this interval, the
+            value is forced to -np.inf. Tuple (s0,s1) means first and last stage.
+            When s0 or s1 is None, s0 defaults to 0, s1 to np.inf. When None is given,
+            s0=0, s1=np.inf.
+        target_p0 : scalar float
+            Condition for stopping rejection of training samples. If 0 < stop_sampling < 1
+            (usually close to zero, like 1e-5), rejection stops when p0 (false positive
+            probability) reaches below this threshold.
+
+        Output
+        ------
+        theta : float or None
+            The value of theta, either -np.inf or None. None value means that theta must be
+            estimated from data.
+        """
+        if rejection_interval is None:
+            rejection_interval = (None, None)
+        self.s0 = rejection_interval[0] or 0
+        self.s1 = rejection_interval[1] or np.inf
+        self.target_p0 = target_p0
+
+    def __call__(self, stage, p0):
+        if stage < self.s0 or stage > self.s1 or p0 < self.target_p0:
+            return -np.inf
+        return None
