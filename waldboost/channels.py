@@ -37,7 +37,7 @@ def grad_mag(image, norm=5, eps=1e-3):
     return mag[...,None]
 
 
-def grad_hist(image, n_bins=6, full=False, bias=0):
+def grad_hist(image, n_bins=4, full=False, bias=4):
     image = image.astype("f")
     gx, gy = gradients(image)
     max_theta = 2*np.pi if full else np.pi

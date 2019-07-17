@@ -20,23 +20,24 @@ def _grad_y(arr):
            arr[ 1,-1] + 2*arr[ 1,0] + arr[ 1,1]
     return dy
 
+_signatures = [
+    "i4[:,:,:](u1[:,:],i4)",
+]
 
-@nb.njit(nogil=True)
-def grad_hist_4(arr, bias=4):
+@nb.njit(_signatures, nogil=True)
+def _grad_hist_4(arr, bias):
     dst_shape = (arr.shape[0], arr.shape[1], 4)
-    dx = _grad_x(arr)
-    dy = _grad_y(arr)
+    dx = np.empty(arr.shape, np.int32)
+    dy = np.empty(arr.shape, np.int32)
+    dx[:] = _grad_x(arr)
+    dy[:] = _grad_y(arr)
     y = np.empty(dst_shape, nb.int32)
     y[...,0] = dx
     y[...,1] = 0.7 * dx - 0.7 * dy
     y[...,2] = dy
     y[...,3] = 0.7 * dx + 0.7 * dy
-    return np.fmax(np.abs(y)-bias, 0)
+    return np.fmax(np.abs(y)-bias, np.int32(0))
 
 
-@nb.jit(nogil=True)
-def grad_mag(arr):
-    dx = _grad_x(arr)
-    dy = _grad_y(arr)
-    dst = np.sqrt(dx**2 + dy**2).astype(nb.int32)
-    return dst
+def grad_hist_4(arr, bias=4):
+    return _grad_hist_4(arr, bias)
