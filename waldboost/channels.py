@@ -56,7 +56,7 @@ def grad_hist(image, n_bins=6, full=False, bias=0):
 
 
 @nb.njit(nogil=True)
-def downscale(arr):
+def avg_pool_2(arr):
     u = arr.shape[0]
     v = arr.shape[1]
     u_lim = u - (u%2)
@@ -65,6 +65,17 @@ def downscale(arr):
             arr[1:u_lim:2,0:v_lim:2,...] +
             arr[0:u_lim:2,1:v_lim:2,...] +
             arr[1:u_lim:2,1:v_lim:2,...]) / 4).astype(arr.dtype)
+
+
+@nb.njit(nogil=True)
+def max_pool_2(arr):
+    u = arr.shape[0]
+    v = arr.shape[1]
+    u_lim = u - (u%2)
+    v_lim = v - (v%2)
+    m0 = np.fmax(arr[0:u_lim:2,0:v_lim:2,...], arr[1:u_lim:2,0:v_lim:2,...])
+    m1 = np.fmax(arr[0:u_lim:2,1:v_lim:2,...], arr[1:u_lim:2,1:v_lim:2,...])
+    return np.fmax(m0, m1)
 
 
 @nb.stencil(neighborhood=((-1,1),(-1,1)))
@@ -90,7 +101,7 @@ def _image_octaves(image, min_size=(16,16)):
         h,w = base_image.shape[:2]
         if ((w//2,h//2) < min_size):
             break
-        base_image = downscale(base_image)
+        base_image = avg_pool_2(base_image)
 
 
 def channel_pyramid(image, channel_opts):
@@ -119,7 +130,7 @@ def channel_pyramid(image, channel_opts):
                 chns = im
 
             if shrink == 2:
-                chns = downscale(chns)
+                chns = avg_pool_2(chns)
 
             if smooth == 1:
                 chns = smooth_image_3d(chns)
