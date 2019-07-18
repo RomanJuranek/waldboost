@@ -10,19 +10,25 @@
 
 ## Training
 * ~~DTree weak classifier~~
-* Fern classifier
+* ~~Fern classifier~~ *CANCELED*
 * ~~Agnostic to underlying feature type~~
-* Quantization
-  * quantized thresholds
-  * quantized response tables (hs)
-* Feature banks (fpga support)
+* ~~Quantization~~
+  * ~~quantized thresholds~~
+  * ~~quantized response tables (hs)~~
+* ~~Feature banks (fpga support)~~
 * ~~fit_stage must return training history~~
 * ~~Rejection scheduling in fit_stage~~
-* Degenerated solutions - training dstump on 0 samples
+* ~~Degenerated solutions - training dstump on 0 samples~~
   * ~~1/ avoid if possible~~
-  * 2/ solve when it happens
-* Check what happens with weights
-* Model saving and restoration (h5)
+  * ~~2/ solve when it happens~~
+* ~~Check what happens with weights~~
+* ~~Model saving and restoration (h5)~~ *Protobuf*
+
+## Model and Persistence
+* Channel parametrs in proto
+* Discard old messages from proto and simplify structure
+* Correct symbol initialization when loading
+* classifier as list of DTree, theta inits own list
 
 ## Channels
 * ~~Configurable channels~~
@@ -38,7 +44,7 @@
 * ~~rewrite sample SamplePool~~
 * ~~bbGt reader parameters~~
 * ~~Ignore bounding boxes~~
-* Stop updating pool at some point, e.g. P0 < 1e-7 or so
+* ~~Stop updating pool at some point, e.g. P0 < 1e-7 or so~~
 * ~~Sample pool without generator???~~
 * ~~Sample pool should accept model in constructor (is mutable and can be used in update method without explicitly passing it)~~
 * ~~Pool should not hold prior probs. should be in training module~~

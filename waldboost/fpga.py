@@ -42,7 +42,7 @@ class BankScheduler:
         return [ [next(self.bank_counter) % self.n_banks] for _ in range(max_depth)]
 
 
-def grad_hist_4(image, bias=4):
+def grad_hist_4(image, bias=0):
     """
     Integer version of grad_hist(image, n_bins=4, full=False)
     Input image must be uint8
@@ -50,15 +50,15 @@ def grad_hist_4(image, bias=4):
     """
     assert image.dtype == np.uint8
 
-    H = np.array( [1,2,1], "i2")
-    D = np.array( [1,0,-1], "i2")
+    H = np.array( [1,2,1], "i4")
+    D = np.array( [-1,0,1], "i4")
 
-    im = image.astype("i2")
+    im = image.astype("i4")
 
-    gy = convolve1d(convolve1d(im,H,axis=1), D, axis=0) / 4
-    gx = convolve1d(convolve1d(im,H,axis=0), D, axis=1) / 4
+    gy = convolve1d(convolve1d(im,H,axis=1), D, axis=0)
+    gx = convolve1d(convolve1d(im,H,axis=0), D, axis=1)
 
-    chns = np.empty(im.shape + (4,), "i2")
+    chns = np.empty(im.shape + (4,), "i4")
 
     theta = np.linspace(0, np.pi, 5)
     cs = np.cos(theta[:-1])
@@ -66,7 +66,7 @@ def grad_hist_4(image, bias=4):
     for i,(c,s) in enumerate(zip(cs,sn)):
         chns[...,i] = gx*c - gy*s
 
-    return np.fmax(np.abs(chns-bias), 0)
+    return np.fmax(np.abs(chns)-bias, np.int32(0))
 
 
 def H(*p):

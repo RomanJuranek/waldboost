@@ -9,6 +9,11 @@ import numpy as np
 
 @nb.stencil(neighborhood=((-1,1),(-1,1)))
 def _grad_x(arr):
+    """ Convolution with horizontal derivative kernel
+    H = [[-1, 0, 1],
+         [-2, 0, 2],
+         [-1, 0, 1]]
+    """
     dx = -(arr[-1,-1] + 2*arr[0,-1] + arr[1,-1]) + \
            arr[-1, 1] + 2*arr[0, 1] + arr[1, 1]
     return dx
@@ -16,13 +21,20 @@ def _grad_x(arr):
 
 @nb.stencil(neighborhood=((-1,1),(-1,1)))
 def _grad_y(arr):
+    """ Convolution with vertical derivative kernel
+    H = [[-1,-2,-1],
+         [ 0, 0, 0],
+         [ 1, 2, 1]]
+    """
     dy = -(arr[-1,-1] + 2*arr[-1,0] + arr[-1,1]) + \
            arr[ 1,-1] + 2*arr[ 1,0] + arr[ 1,1]
     return dy
 
+
 _signatures = [
     "i4[:,:,:](u1[:,:],i4)",
 ]
+
 
 @nb.njit(_signatures, nogil=True)
 def _grad_hist_4(arr, bias):
@@ -39,5 +51,13 @@ def _grad_hist_4(arr, bias):
     return np.fmax(np.abs(y)-bias, np.int32(0))
 
 
-def grad_hist_4(arr, bias=4):
+def grad_hist_4(arr, bias=25):
     return _grad_hist_4(arr, bias)
+
+
+@nb.jit(nogil=True)
+def grad_mag(arr):
+    dx = _grad_x(arr)
+    dy = _grad_y(arr)
+    dst = np.sqrt(dx**2 + dy**2).astype(nb.int32)
+    return dst

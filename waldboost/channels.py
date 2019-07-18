@@ -15,9 +15,10 @@ def triangle_kernel(n):
 
 
 def gradients(image):
-    D = np.array( [1,0,-1], "f")
-    gy = convolve1d(image, D, axis=0)
-    gx = convolve1d(image, D, axis=1)
+    H = np.array([1,2,1], "f4")
+    D = np.array([-1,0,1], "f4")
+    gy = convolve1d(convolve1d(image,H,axis=1), D, axis=0)
+    gx = convolve1d(convolve1d(image,H,axis=0), D, axis=1)
     return gx, gy
 
 
@@ -86,7 +87,12 @@ def _smooth(arr):
     return v / 16
 
 
-@nb.njit(nogil=True)
+_signatures = [
+    "f4[:,:,:](f4[:,:,:])",
+    "i4[:,:,:](i4[:,:,:])",
+]
+
+@nb.njit(_signatures, nogil=True)
 def smooth_image_3d(arr):
     smoothed = np.empty_like(arr)
     for k in range(arr.shape[2]):
@@ -130,7 +136,7 @@ def channel_pyramid(image, channel_opts):
                 chns = im
 
             if shrink == 2:
-                chns = avg_pool_2(chns)
+                chns = max_pool_2(chns)
 
             if smooth == 1:
                 chns = smooth_image_3d(chns)
