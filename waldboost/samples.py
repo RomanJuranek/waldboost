@@ -49,6 +49,16 @@ class Pool:
         return np.flatnonzero(tp), np.flatnonzero(fp)
 
     def update(self, detector, gen, take_tp=True, take_fp=True):
+        """
+        Input
+        -----
+        detector : model.Model
+            Detection model
+        gen : generator
+            Provider of images and ground truth
+            image, gt_boxes, *_ = next(gen)
+            where image is np.ndarray and gt_boxes is bbox.BoxList with "ignore" field
+        """
         self.logger.info("Updating sample in the pool")
         self.samples = [ self.gather_samples(0) + (0,),
                          self.gather_samples(1) + (1,)]
@@ -66,7 +76,7 @@ class Pool:
         for image, gt, *_ in gen:
             req_tp = self.require(1) and take_tp
             if req_tp and gt.size == 0:
-                continue;
+                continue
             logging.info(f"Req TP: {self.require(1)}, Req FP: {self.require(0)}")
             for chns, scale, (r,c,h) in detector.scan_channels(image):
                 n_locations = len(r)

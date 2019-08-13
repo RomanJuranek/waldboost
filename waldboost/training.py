@@ -112,6 +112,7 @@ class Learner:
         self.wh_args = wh_args
         self.P0 = 1
         self.P1 = 1
+        self.loss = None
 
     def fit_stage(self, model, X0, H0, X1, H1, theta=None, **wh_args):
         """ Append new stage to the model """
@@ -132,10 +133,11 @@ class Learner:
         p1 = (H1>=theta).sum() / H1.size
         self.P0 *= p0
         self.P1 *= p1
+        self.loss = loss(H0, H1)
 
         model.append(weak, theta)
 
-        return loss(H0, H1), self.P0, self.P1
+        return self.loss, self.P0, self.P1
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):

@@ -62,13 +62,11 @@ class Model:
         self.shape = shape
         self.channel_opts = channel_opts
         self.classifier = []
-        self.n_loc = 0
-        self.n_weak = 0
+        self.reset()
 
     @property
     def eval_cost(self):
-        """
-        Cost of classifier evaluation - average number of weak classifiers per location.
+        """ Cost of classifier evaluation - average number of weak classifiers per location.
 
         The metric is updated with calling detect or predict_on_image (not predict).
         Calling reset() will reset the stats.
@@ -84,7 +82,7 @@ class Model:
         return self.n_weak/self.n_loc if self.n_loc>=0 else 0
 
     def reset(self):
-        """
+        """ Reset stats for eval cost computation
         """
         self.n_loc = 0
         self.n_weak = 0

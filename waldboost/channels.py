@@ -126,7 +126,7 @@ def channel_pyramid(image, channel_opts):
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
             real_scale = nw / image.shape[1]
 
-            im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)[...,None]
+            im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)[...,None] # pylint: disable=no-member
 
             if channels:
                 chns = [func(im[...,0]) for func in channels]
