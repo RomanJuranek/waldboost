@@ -1,10 +1,12 @@
 import logging
-import numpy as np
+
+import cv2
 import numba as nb
+import numpy as np
+from scipy.ndimage import convolve1d
 from skimage.measure import block_reduce
 from skimage.transform import resize
-from scipy.ndimage import convolve1d
-import cv2
+
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,6 @@ def channel_pyramid(image, channel_opts):
     channels = channel_opts["channels"]
     # target_dtype = channel_opts["target_dtype"]
     assert shrink in [1,2], "Shrink factor must be integer 1 <= shrink <= 2"
-
     factor = 2**(-1/n_per_oct)
     for base_image in _image_octaves(image):
         h,w,*_ = base_image.shape
@@ -136,7 +137,7 @@ def channel_pyramid(image, channel_opts):
                 chns = im
 
             if shrink == 2:
-                chns = max_pool_2(chns)
+                chns = avg_pool_2(chns)
 
             if smooth == 1:
                 chns = smooth_image_3d(chns)

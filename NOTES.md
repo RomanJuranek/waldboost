@@ -52,7 +52,7 @@
 
 ## Training
 * Better API for Learner - methods object_prob, bg_prob, loss
-* Constant spft cascade pipeline
+* Constant soft cascade pipeline
 
 ## Model and channels
 * Channel parametrs in proto
@@ -64,11 +64,12 @@
 
 ## Data sampling
 * Change image set during training
-* Either update bbx package to be more consistent or use bbox (or other) package
-* Better API for Pool
+* ~~Either update bbx package to be more consistent or use bbox (or other) package~~
+* ~~Better API for Pool~~
+* Fix dt_boxes is None and gt_boxes is None cases
 
 ## Ground Truth
-* Improve bbGt reagind - return 
+* ~~Improve bbGt reading - return~~
 
 ## Verification
 * Verification - better log, validation set, show fp/fn rates

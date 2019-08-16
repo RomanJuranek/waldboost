@@ -1,26 +1,42 @@
-import math
+""" Support for generating samples from images
+
+TODO
+"""
+
+
 import logging
+import math
+
 import numpy as np
-import bbx
 
-from . import groundtruth
-
-
-def sample_from_bbs(chns, shape, bbs):
-    u,v,_ = chns.shape
-    m,n,_ = shape
-    map = np.zeros((max(u-m,0),max(v-n,0)), np.bool)
-    for bb in bbs:
-        x,y,w,h,ign = bb.astype(np.int)
-        if ign or not w or not h: continue
-        if abs(math.log((m*n) / (h*w))) < 0.2:  # Area of gt and sample must match approximately
-            map[y-m:y+h,x-n:x+w] = 1
-    r,c = np.nonzero(map)
-    return r, c, np.zeros_like(r, np.float32)
+from . import bbox
 
 
 def gather_samples(chns, rs, cs, shape):
-    #u,v = chns.shape
+    """ Crop feature maps
+
+    Input
+    -----
+    chns : np.ndarray
+        x
+    rs, cs : np.ndarray
+        rows and columns of the samples to crop
+    shape : tuple
+        Shape of samples
+
+    Output
+    ------
+    X : np.ndarray
+        Cropped samples with shape (rs.size,) + shape + (chns.shape[2],)
+        E.g.: When rs (and cs) has size 10 (i.e. 10 samples), shape=(20,20)
+        and chns.shape is (100,100,4), the resulting shape will be (10,20,20,4)
+
+    Notes
+    -----
+    No range checks are performed.
+    """
+    if rs.size != cs.size:
+        raise ValueError("Sizes of 'rs' and 'cs' must match")
     m,n,_ = shape
     if rs.size == 0:
         return np.empty((0,)+shape, dtype=chns.dtype)
@@ -28,106 +44,291 @@ def gather_samples(chns, rs, cs, shape):
     return np.array(X)
 
 
-class Pool:
-    def __init__(self, output_shape, min_fp=1000, min_tp=1000, logger=None):
+def select_candidates(condition, max_candidates:int) -> np.ndarray:
+    """ Select at most max_candidates from items where condition evaluates to True
+    
+    Input
+    -----
+    condition : ndarray of np.bool
+        Array from which candidates are drawn
+    max_candidates : int
+        Max number of candidates to select from condition==True items
+
+    Output
+    ------
+    idx : np.ndarray
+        List of indices where condition==True. idx.size <= max_candidates.
+        Items are selected by np.random.choice() when there are more
+        then max_candidate possible items, otherwise np.flatnonzero(condition)
+        is returned.
+
+    Notes
+    -----
+    Order of items in idx is not ensured.
+
+    Example
+    -------
+    x = np.random.rand(1000)  # 1000 random numbers
+    idx = select_candidates(x>0.5, 5)  # Return at most 5 indices of items with value larger than 0.5
+    assert np.all(x[idx]>0.5) and idx.size<=5
+    """
+    idx = np.flatnonzero(condition)
+    if idx.size > max_candidates:
+        idx = np.random.choice(idx, max_candidates)
+    return idx
+
+
+def label_boxes(dt_boxes,
+                gt_boxes,
+                min_tp_iou = 0.7,
+                max_fp_iou = 0.3,
+                max_tp_candidates = 100,
+                max_fp_candidates = 100):
+    """ Label boxes as TP, FP, or ignore and assign ground truth instance id
+    
+    Input
+    -----
+    dt_boxes : BoxList
+        List of boxes to be labeled (can contain any extra fields). At most
+        max_tp_candidates and max_fp_candidates will be labeled as tp/fp,
+        others will be labeled as ignore.
+    gt_boxes : BoxList
+        List of ground truth boxes with optional 'ignore' field.
+    min_tp_iou : float
+        Boxes with iou>min_tp_iou are considered as true positives.
+    max_fp_iou : float
+        Boxes with iou<min_fp_iou are considered as false positives.
+    max_tp_candidates : int
+        Max number of candidates to select from true positive boxes.
+    max_fp_candidates : int
+        Max number of candidates to select from false positive boxes.
+
+    Output
+    ------
+    None, mutates dt_boxes by adding fields 'instance_id' and 'tp_label'
+
+    New fields
+    ----------
+    tp_label : ndarray
+        Each box is labeled by a value from {-1,0,1}
+        -1 : false positive box
+         0 : ignored box
+         1 : true positive box
+    instance_id : ndarray
+        Index of a box from gt_boxes with highest iou. Valid for true
+        positives (tp_label == 1). Values are from range(0, gt_boxes.num_boxes())
+    """
+    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(gt_boxes.num_boxes())
+    overlap = bbox.np_box_list_ops.iou(dt_boxes, gt_boxes)
+    dt_iou = np.max(overlap, axis=1)
+    dt_instance_id = np.argmax(overlap, axis=1)
+    dt_ignore_flag = ignore_flag[dt_instance_id,0]
+    fp = select_candidates(dt_iou < max_fp_iou, max_fp_candidates)
+    tp = select_candidates(np.logical_and(dt_iou > min_tp_iou, dt_ignore_flag == 0), max_tp_candidates)
+    box_label = np.zeros(dt_boxes.num_boxes(), np.int32)
+    box_label[tp] =  1
+    box_label[fp] = -1
+    dt_boxes.add_field("instance_id", dt_instance_id.reshape((-1,1)))
+    dt_boxes.add_field("tp_label", box_label.reshape((-1,1)))
+
+
+def get_regression_target(dt_boxes, gt_boxes):
+    if not dt_boxes.has_field("instance_id"):
+        raise ValueError("'instance_id' field is missing")
+    regression_target = dt_boxes.get() - bbox.np_box_list_ops.gather(gt_boxes, dt_boxes.get_field("instance_id").ravel()).get()
+    dt_boxes.add_field("regression_target", regression_target)
+
+
+def get_samples_from_image(model,
+                           image,
+                           gt_boxes,
+                           tp = True,
+                           fp = True,
+                           **kwargs):
+    """ Get samples from image
+
+    Input
+    -----
+    model : wb.Model
+        Detection model - a producer of feature maps and locations of objects
+    image : np.ndarray
+        Grayscale image
+    gt_boxes : BBoxList
+        List of ground truth bounding boxes with optional 'ignore field'
+    tp/fp : bool, int
+        Include tp/fp when evaluates to True
+    kws :
+        Additional arguments form label_boxes(). Useful for setting
+        iou thresholds for tp and fp.
+
+    Output
+    ------
+    dt_boxes : BBoxList
+        List of bounding boxes with fields `scores`, 'tp_label', and 'samples'.
+        'scores' represent classifier response value. 'tp_label' is 1 for
+        true positives, 1 for false positives. 'samples' contain corresponding
+        feature maps form the image.
+
+    See also
+    --------
+    label_boxes : Function that decides what is tp/fp/ignored
+    """
+    box_lists = []
+    for chns,scale,(r,c,h) in model.scan_channels(image):
+        if r.size <= 1:
+             continue
+        # Get dt_boxes from locations detected by model
+        model.get_boxes(r,c,scale)
+        dt_boxes = bbox.BoxList(model.get_boxes(r,c,scale))
+        dt_boxes.add_field("scores", h.reshape((-1,1)) )
+        dt_boxes.add_field("row", r.reshape((-1,1)))
+        dt_boxes.add_field("col", c.reshape((-1,1)))
+        # Label the detections
+        label_boxes(dt_boxes, gt_boxes, **kwargs)
+        # Select what should be included in output
+        tp_label = dt_boxes.get_field("tp_label")
+        mask = np.logical_or( \
+                    np.logical_and(tp_label==1, tp),   # tp mask
+                    np.logical_and(tp_label==-1, fp))  # fp mask
+        mask = np.flatnonzero(mask)
+        if mask.size == 0:
+            continue
+        dt_boxes = bbox.np_box_list_ops.gather(dt_boxes, mask)
+        # Crop the feature maps
+        samples = gather_samples(chns, dt_boxes.get_field("row").flatten(), dt_boxes.get_field("col").flatten(), model.shape)
+        dt_boxes.add_field("samples", samples)
+        box_lists.append(dt_boxes)
+    return bbox.np_box_list_ops.concatenate(box_lists, fields={"scores", "tp_label", "instance_id", "samples"}) if box_lists else None
+
+
+class SamplePool(object):
+    """ Container for training samples """
+    def __init__(self,
+                 min_tp=1000,
+                 min_fp=1000,
+                 logger=None,
+                 **kwargs):
+        """
+        Inputs
+        ------
+        min_tp, min_fp : int
+            Minimal number of training samples to keep
+        logger : Logger
+            Optional logger instance
+        kwargs :
+            Additional parameters passed to get_samples_from_image()
+
+        Example
+        -------
+        pool = SamplePool()
+        pool.update(model, [(image, boxes)])
+        X,H = pool.get_true_positives()
+        """
         self.samples = []
-        self.output_shape = output_shape
-        self.min_fp_dist = 0.9
-        self.max_tp_dist = 0.2
         self.min_tp = min_tp
         self.min_fp = min_fp
-        self.max_candidates = 100
-        self.logger = logger or logging.getLogger("Pool")
+        self.n_tp = 0
+        self.n_fp = 0
+        self.label_boxes_args = kwargs
+        self.logger = logger or logging.getLogger("SamplePool")
 
-    def clear(self):
-        self.samples.clear()
+    def print_stats(self):
+        print("Pool stats:")
+        print(f"tp: {self.n_tp}; fp: {self.n_fp}")
+        print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
 
-    def classify_dt(self, dt, gt):
-        dt_dist, dt_ign, _ = groundtruth.match(dt, gt)
-        tp = np.logical_and(dt_dist < self.max_tp_dist, ~dt_ign)
-        fp = dt_dist > self.min_fp_dist
-        return np.flatnonzero(tp), np.flatnonzero(fp)
+    def update(self, model, gen):
+        self.prune(model)
+        if self.require_tp or self.require_fp:
+            for image,gt_boxes,*_ in gen:
+                self.print_stats()
+                dt_boxes = get_samples_from_image(model, image, gt_boxes, tp=self.require_tp, fp=self.require_fp, **self.label_boxes_args)
+                if not dt_boxes:
+                    continue
+                self.samples.append(dt_boxes)
+                sample_label = dt_boxes.get_field("tp_label")
+                new_tp = (sample_label== 1).sum()
+                new_fp = (sample_label==-1).sum()
+                self.n_tp += new_tp
+                self.n_fp += new_fp
+                self.logger.debug(f"Added {new_tp} tp and {new_tp} fp samples")
+                if not self.require_tp and not self.require_fp:
+                    break
+            else:
+                self.logger.debug("Iterator exhausted")
+        self.print_stats()
 
-    def update(self, detector, gen, take_tp=True, take_fp=True):
-        """
-        Input
-        -----
-        detector : model.Model
-            Detection model
-        gen : generator
-            Provider of images and ground truth
-            image, gt_boxes, *_ = next(gen)
-            where image is np.ndarray and gt_boxes is bbox.BoxList with "ignore" field
-        """
-        self.logger.info("Updating sample in the pool")
-        self.samples = [ self.gather_samples(0) + (0,),
-                         self.gather_samples(1) + (1,)]
+    @property
+    def require_tp(self):
+        """ Number of tp samples required to fill the pool """
+        return max(0, self.min_tp - self.n_tp)
+
+    @property
+    def require_fp(self):
+        """ Number of fp samples required to fill the pool """
+        return max(0, self.min_fp - self.n_fp)
+
+    def prune(self, model):
+        """ Remove samples rejected by the model from the pool """
         pruned_samples = []
-        for x,h,y in self.samples:
-             _h,mask = detector.predict(x)
-             if np.any(mask):
-                 pruned_samples.append(  (x[mask,...], _h[mask], y) )
-        self.samples = pruned_samples
-        req_tp = self.require(1) and take_tp
-        req_fp = self.require(0) and take_fp
-        if not req_tp and not req_fp:
-            return
-        self.logger.info("Sampling new data")
-        for image, gt, *_ in gen:
-            req_tp = self.require(1) and take_tp
-            if req_tp and gt.size == 0:
-                continue
-            logging.info(f"Req TP: {self.require(1)}, Req FP: {self.require(0)}")
-            for chns, scale, (r,c,h) in detector.scan_channels(image):
-                n_locations = len(r)
-                if n_locations > self.max_candidates and not detector:  # limit the number of candidates
-                    k = np.random.choice(n_locations, self.max_candidates)
-                    r,c,h = r[k],c[k],h[k]
+        n_tp = 0
+        n_fp = 0
+        for s in self.samples:
+            score,mask = model.predict(s.get_field("samples"))
+            mask = np.flatnonzero(mask)
+            if mask.size == 0:
+               continue
+            score_field = s.get_field("scores")
+            score_field[:,0] = score  # FIXME this is a hack
+            pruned_s = s if mask.size==s.num_boxes() else bbox.np_box_list_ops.gather(s, mask)
+            pruned_samples.append(pruned_s)
+            sample_label = pruned_s.get_field("tp_label")
+            n_tp += (sample_label== 1).sum()
+            n_fp += (sample_label==-1).sum()
+        self.samples = pruned_samples  # concatenate ?
+        self.n_tp = n_tp
+        self.n_fp = n_fp
+        self.print_stats()
+    
+    def filter_by_tp_label(self, label):
+        boxes = []
+        for s in self.samples:
+            mask = s.get_field("tp_label") == label
+            mask = np.flatnonzero(mask)
+            if mask.size > 0:
+                #print(mask)
+                boxes.append(bbox.np_box_list_ops.gather(s, mask))
+        #print([b.num_boxes() for b in boxes])
+        return bbox.np_box_list_ops.concatenate(boxes)
 
-                if not detector and take_tp and gt.shape[0]:
-                    scale_gt = gt.copy()
-                    scale_gt[:,:4] *= scale
-                    r_tp,c_tp,h_tp = sample_from_bbs(chns, detector.shape, scale_gt)
-                    dt_tp = detector.get_bbs(r_tp, c_tp, scale)
-                    real_tp,_ = self.classify_dt(dt_tp, gt)
-                    if len(real_tp) > 20:
-                         real_tp = np.random.choice(real_tp, 20)
-                    r = np.concatenate( [r, r_tp[real_tp]] )
-                    c = np.concatenate( [c, c_tp[real_tp]] )
-                    h = np.concatenate( [h, h_tp[real_tp]] )
-
-                dt = detector.get_bbs(r, c, scale)
-                tp, fp = self.classify_dt(dt, gt)
-
-                if take_fp and self.require(0):
-                    new_fp = gather_samples(chns, r[fp], c[fp], self.output_shape)
-                    self.append(new_fp, h[fp], 0)
-
-                if take_tp and self.require(1):
-                    new_tp = gather_samples(chns, r[tp], c[tp], self.output_shape)
-                    self.append(new_tp, h[tp], 1)
-
-            req_tp = self.require(1) and take_tp
-            req_fp = self.require(0) and take_fp
-            if not req_tp and not req_fp:
-                break
-
-        else:
-            logging.warning("Not enough training images")
-
-    def append(self, X, H, Y):
-        self.samples.append( (X, H, Y) )
-
-    def gather_samples(self, c):
-        if not self.size(c):
-            return np.empty((0,)+self.output_shape), np.empty(0)
-        X = np.concatenate( [x for x,h,y in self.samples if y == c] )
-        H = np.concatenate( [h for x,h,y in self.samples if y == c] )
+    def get_samples(self, label):
+        boxes = self.filter_by_tp_label(label=label)
+        X = boxes.get_field("samples")
+        H = boxes.get_field("scores").flatten()
         return X, H
 
-    def size(self, c):
-        return sum( h.size for _,h,y in self.samples if y == c )
+    def get_true_positives(self):
+        """
+        Return true positive samples.
 
-    def require(self, c):
-        v = self.min_fp if c==0 else self.min_tp
-        return max(v-self.size(c), 0)
+        Output
+        ------
+        X : ndarray
+            Sample feature maps with shape (N,H,W,C)
+        H : ndarray
+            Sample scores with shape (N,)
+        """
+        return self.get_samples(label=1)
+
+    def get_false_positives(self):
+        """
+        Return false positive samples.
+
+        Output
+        ------
+        X : ndarray
+            Sample feature maps with shape (N,H,W,C)
+        H : ndarray
+            Sample scores with shape (N,)
+        """
+        return self.get_samples(label=-1)

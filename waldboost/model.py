@@ -6,12 +6,13 @@ waldboost.model.Model
 """
 
 
-import zlib
 import logging
+import zlib
+
 import numpy as np
 from google.protobuf.message import DecodeError
 
-from . import model_pb2
+from . import bbox, model_pb2
 from .channels import channel_pyramid
 from .training import DTree
 
@@ -23,7 +24,7 @@ def symbol_name(s):
 def symbol_from_name(name):
     print(f"Initializing symbol {name}")
     from importlib import import_module
-    m,rest = name.split(".",1)
+    m,_ = name.split(".",1)
     ls = {m: import_module(m)}
     return eval(name, {}, ls)
 
@@ -79,11 +80,10 @@ class Model:
 
         print(model.eval_cost)
         """
-        return self.n_weak/self.n_loc if self.n_loc>=0 else 0
+        return self.n_weak/self.n_loc if self.n_loc>0 else 0
 
     def reset(self):
-        """ Reset stats for eval cost computation
-        """
+        """ Reset stats for eval cost computation """
         self.n_loc = 0
         self.n_weak = 0
 
@@ -98,7 +98,7 @@ class Model:
             # chns is (H,W,C) array with channel features extracted by channel_pyramid
             # scale - coordinates r,c in chns correspond to r/scale, c/scale in image
         """
-        return channel_pyramid(image, self.channel_opts)
+        yield from channel_pyramid(image, self.channel_opts)
 
     def scan_channels(self, image):
         """ Generator of channels and locations detected on gather_samples
@@ -129,11 +129,12 @@ class Model:
             # r,c - detected locations chns[r:r+h,c:c+w,:] where where h,w,c = model.shape
             # h - detector scores
         """
-        return ((chns, scale, self.predict_on_image(chns)) for chns, scale in self.channels(image))
+        yield from ((chns, scale, self.predict_on_image(chns)) for chns, scale in self.channels(image))
 
-    def get_bbs(self, r, c, scale):
+    def get_boxes(self, r, c, scale):
+        """ Get boxes in YXYX format """
         m,n,_ = self.shape
-        return np.atleast_2d( [(c,r,n,m) for r,c in zip(r,c)] ) / scale
+        return np.array([r, c, r+m-1, c+n-1], "f").transpose() / scale
 
     def detect(self, image):
         """ Detect objects in image
@@ -146,34 +147,27 @@ class Model:
 
         Returns
         -------
-        bbs : ndarray
-            Bounding boxes of deteced objects with shape (N,4) and dtype
-            np.float32. Each item in bbs corresponsds to bounding box location
-            in x,y,w,h format.
-
-        scores : ndarray
-            Classifier response value for each bounding box (float32)
+        dt_boxes : BoxList or None
+            Bounding boxes of deteced objects with 'scores' field
 
         Examples
         --------
         model = waldboost.load_model("model.pb")
-        bbs, scores = model.detect(image)
-
-        for (x,y,w,h), h iqn zip(bbs, scores):
-            # Process bbox
+        dt = model.detect(image)
+        if dt is not None:
+            for box,score in zip(dt.get(), dt.get_field("scores")):
+                # Process bbox
+                # ymin,xmin,ymax,xmax = box
+                # ...
         """
-        bbs,scores = [],[]
+        dt_boxes = []
         for chns, scale in self.channels(image):
-            #print(chns.shape, scale)
             r,c,h = self.predict_on_image(chns)
-            bbs.append(self.get_bbs(r,c,scale))
-            scores.append(h)
-        bbs = [x for x in bbs if x.size]
-        scores = [x for x in scores if x.size]
-        if bbs:
-            bbs = np.concatenate(bbs)
-            scores = np.concatenate(scores)
-        return np.array(bbs), np.array(scores)
+            if r.size:
+                boxes = bbox.BoxList(self.get_boxes(r,c,scale))
+                boxes.add_field("scores", h)
+                dt_boxes.append(boxes)
+        return bbox.np_box_list_ops.concatenate(dt_boxes, {"scores"}) if dt_boxes else None
 
     def predict(self, X):
         """ Predict model on samples
@@ -195,10 +189,8 @@ class Model:
 
         Example
         -------
-
         X,_ = pool.gather_samples(0)  # Take background samples from pool
         H,mask = model.predict(X)
-
         """
         n,*shape = X.shape
         assert tuple(shape) == tuple(self.shape), f"Invalid shape of X. Expected {self.shape}, given {shape}"
@@ -238,7 +230,7 @@ class Model:
         rs = idx % (u-m)
         cs = idx // (u-m)
         hs = np.zeros_like(rs, np.float32)
-        self.n_loc += hs.size  # Stats
+        self.n_loc += hs.size  # pylint: disable=no-member
         for weak, theta in self.classifier:
             if not rs.size: break
             hs += weak.predict_on_image(X, rs, cs)

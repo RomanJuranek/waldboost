@@ -10,7 +10,7 @@ from queue import Queue
 from collections import deque, defaultdict
 
 from .training import DTree, Learner, as_features, BasicRejectionSchedule
-from .samples import Pool
+#from .samples import Pool
 
 
 def _bank_pattern(shape, block_shape):
