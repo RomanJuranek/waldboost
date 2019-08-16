@@ -1,67 +1,66 @@
-import cv2
+"""
+Support for detector testing
+
+This requires TF Object detection API installed
+https://github.com/tensorflow/models
+"""
+
 import logging
+
 import numpy as np
-from .detector import detect
-from .groundtruth import match
-from sklearn import metrics
-import bbx
+
+import waldboost as wb
+from object_detection.utils.object_detection_evaluation import \
+    ObjectDetectionEvaluator
+
+from . import bbox
 
 
-logger = logging.getLogger(__name__)
+def detect(image, model, iou_threshold=0.3, score_threshold=-10):
+    """
+    Wrapper that produces detection in TF Object Detection API format
+
+    Input
+    -----
+    image : ndarray
+        Input image - whatever accepter by model.detect
+    model : list of models
+
+    Output
+    ------
+    dt_dict : dict
+        Dictionary with keys "detection_boxes", "detection_scores" and
+        "detection_classes" as required by ObjectDetectionEvaluator
+    """
+    dt_boxes = wb.detect_multiple(image, *model, separate=False)
+
+    dt_boxes = bbox.np_box_list_ops.non_max_suppression(dt_boxes,
+                                                        iou_threshold=iou_threshold,
+                                                        score_threshold=score_threshold)
+    return {
+        "detection_boxes": dt_boxes.get(),
+        "detection_scores": dt_boxes.get_field("scores"),
+        "detection_classes": np.ones(dt_boxes.num_boxes(), "i"),
+    }
 
 
-def process_images(testing_images, model, verifier=None):
-    results = {}
-    for img, gt, filename in testing_images:
-        dt, score = detect(img, model, verifier)
-        results[filename] = {
-            "dt": np.array(dt), "score": score, "gt": np.array(gt)
+def evaluate_model(model, testing_images, label="object"):
+    """ Test the given model on testing images and return evaluation structure """
+    category_index = [{"id":1,"name":label}]
+    E = ObjectDetectionEvaluator(categories=category_index,
+                                 evaluate_precision_recall=True,
+                                 matching_iou_threshold=0.5,
+                                 evaluate_corlocs=True)
+
+    for idx,(im,gt_boxes,filename) in enumerate(testing_images):
+        logging.debug(f"Processing {filename}")
+        dt_dict = detect(im, model)
+        gt_dict = {
+            "groundtruth_boxes": gt_boxes.get(),
+            "groundtruth_classes": np.ones(gt_boxes.num_boxes(),"i"),
+            "groundtruth_difficult": gt_boxes.get("ignore").flatten(),
         }
-    return results
-
-
-def nms_basic(dt, score):
-    mask = score > 0
-    return bbx.nms(dt[mask,...], score[mask], min_overlap=0.2)
-
-
-def compute_roc(results, nms_func, metric=bbx.overlap, max_dist=0.8):
-    Y = []
-    score = []
-    ignore = []
-    gt_missed = 0
-    gt_total = 0
-
-    for f,r in results.items():
-        gt = r["gt"]
-        if nms_func is not None:
-            dt_nms, score_nms = nms_func(r["dt"], r["score"])
-        else:
-            dt_nms, score_nms = r["dt"], r["score"]
-        dt_dist, dt_ign, gt_dist = match(dt_nms, gt)
-        has_ign_flag = gt.shape[1] == 5
-        ign_flag = gt[:,4].astype(np.bool) if has_ign_flag else np.zeros(n_gt,np.bool)
-        Y.append(dt_dist < max_dist)  # distance to some gt is less than threshold -> tp
-        score.append(score_nms)  # Detection score
-        ignore.append(dt_ign)
-        gt_missed += np.logical_and(gt_dist>=max_dist, ~ign_flag).sum()
-        gt_total += (~ign_flag).sum()
-
-    Y = np.concatenate(Y)
-    score = np.concatenate(score)
-    ignore = np.concatenate(ignore)
-
-    Y = Y[~ignore]
-    score = score[~ignore]
-    det_rate = 1-(gt_missed / gt_total)
-    n_imgs = len(results.keys())
-
-    print(gt_missed, gt_total, det_rate)
-
-    bins = np.linspace(score.min(), score.max(), 1000)
-    tp,_ = np.histogram(score[Y==1], bins)
-    fp,_ = np.histogram(score[Y==0], bins)
-    fppi = (fp.sum() - np.cumsum(fp)) / n_imgs
-    miss = 1-(1-(np.cumsum(tp) / tp.sum())) * det_rate
-
-    return fppi, miss, bins
+        E.add_single_ground_truth_image_info(idx, gt_dict)
+        E.add_single_detected_image_info(idx, dt_dict)
+    
+    return E.evaluate()
