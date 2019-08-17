@@ -2,6 +2,12 @@
 Dirty code
 """
 
+
+import numpy as np
+import cv2
+from . import groundtruth
+
+
 def takemin(iterable, objective=None):
     current_min_el = None
     for idx, el in enumerate(iterable):
@@ -81,24 +87,21 @@ def draw_detections(img, model, nms=False, min_score=-10):
 
 
 def fake_data_generator():
-    import numpy as np
     while True:
         image = np.zeros( (256,256), "f" )
         gt = []
-        n_objects = np.random.randint(10)
+        n_objects = np.random.randint(1,3)
         for _ in range(n_objects):
             w = np.random.randint(20,100)
             x = np.random.randint(256-w)
             y = np.random.randint(256-w)
             i =  np.random.uniform(0.2,1)
             image[y:y+w,x:x+w] += i
-            gt.append( [x-5,y-5,w+10,w+10,0] )
-            image += 0.05*np.random.randn(*image.shape)
+            gt.append( [y-5,x-5,y+w+10,x+w+10] )
+        image += 0.05*np.random.rand(*image.shape)
         image = (np.clip(image, 0,1)*255).astype("u1")
-        yield np.atleast_3d(image), np.atleast_2d(gt).astype("f")
-
-
-import cv2
+        gt_boxes = groundtruth.bbox_list(np.array(gt,"f"))
+        yield np.atleast_3d(image), gt_boxes
 
 
 class ShowImageCallback():
