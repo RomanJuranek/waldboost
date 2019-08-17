@@ -118,7 +118,7 @@ def label_boxes(dt_boxes,
         Index of a box from gt_boxes with highest iou. Valid for true
         positives (tp_label == 1). Values are from range(0, gt_boxes.num_boxes())
     """
-    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(gt_boxes.num_boxes())
+    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros((gt_boxes.num_boxes(),1))
     overlap = bbox.np_box_list_ops.iou(dt_boxes, gt_boxes)
     dt_iou = np.max(overlap, axis=1)
     dt_instance_id = np.argmax(overlap, axis=1)
