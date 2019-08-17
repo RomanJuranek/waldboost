@@ -3,14 +3,17 @@ Support for FPGA stuff.
 """
 
 import logging
-import numpy as np
-from scipy.ndimage import convolve1d
+from collections import defaultdict, deque
 from itertools import count
 from queue import Queue
-from collections import deque, defaultdict
 
-from .training import DTree, Learner, as_features, BasicRejectionSchedule
-#from .samples import Pool
+import numpy as np
+from scipy.ndimage import convolve1d
+
+from .samples import SamplePool
+from .training import BasicRejectionSchedule
+from .training import DTree as BaseDTree
+from .training import Learner, as_features
 
 
 def _bank_pattern(shape, block_shape):
@@ -114,7 +117,7 @@ def _find_split(x, y, w):
     return k, threshold[k], metric[k]
 
 
-class FPGA_DTree:
+class DTree:
     """ Decision tree training algorithm for FPGA
     The difference from waldboost.training.DTree (based on sklearn):
     * Features in split nodes can be restricted according to node depth using
@@ -220,11 +223,7 @@ class FPGA_DTree:
             pred = np.round(quantizer*pred) / quantizer
 
         # Return initialized waldboost.training.DTree instance
-        tree = DTree(feature, threshold, left, right, pred)
-
-
-
-        return tree
+        return  BaseDTree(feature, threshold, left, right, pred)
 
 
 channel_opts = {
@@ -279,7 +278,7 @@ def train(model,
     logger = logger or logging.getLogger("WaldBoost/FPGA")
 
     learner = Learner(alpha=alpha, wh=FPGA_DTree, max_depth=max_depth, clip=clip, quantizer=quantizer)
-    pool = Pool(model.shape, min_tp=n_pos, min_fp=n_neg)
+    pool = SamplePool(min_tp=n_pos, min_fp=n_neg)
     pool.max_tp_dist = max_tp_dist
 
     if bank_pattern_shape is not None:
