@@ -52,6 +52,9 @@
 
 ## Training
 * Better API for Learner - methods object_prob, bg_prob, loss
+* Resume learning
+  * save/load learner to file
+  * supply learer to training
 * Constant soft cascade pipeline
 
 ## Model and channels
