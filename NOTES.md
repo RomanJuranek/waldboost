@@ -69,12 +69,13 @@
 * Change image set during training
 * ~~Either update bbx package to be more consistent or use bbox (or other) package~~
 * ~~Better API for Pool~~
-* Fix dt_boxes is None and gt_boxes is None cases
+* ~~Fix dt_boxes is None and gt_boxes is None cases~~
 
 ## Ground Truth
-* ~~Improve bbGt reading - return~~
+* ~~Improve bbGt reading - return BoxList~~
 
 ## Verification
+* Consider rename module - postprocessing?
 * Verification - better log, validation set, show fp/fn rates
 * bbox regression?
 
