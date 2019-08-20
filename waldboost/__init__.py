@@ -155,17 +155,14 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
     return bbox.np_box_list_ops.concatenate(dt_boxes) if dt_boxes else None
 
 
-def train(model,
-          training_images,
-          length=64,
-          alpha=0.2,
-          min_tp_iou=0.75,
-          n_pos=1000,
-          n_neg=1000,
-          max_depth=2,
-          theta_schedule=BasicRejectionSchedule(),
-          callbacks=[],
-          logger=None):
+def train1(model,
+           training_images,
+           learner,
+           pool,
+           length=64,
+           theta_schedule=BasicRejectionSchedule(),
+           callbacks=[],
+           logger=None):
     """ Train or continue training detection model
 
     This is a baseline training pipeline. It simply trains a classifier
@@ -228,21 +225,20 @@ def train(model,
     ----------
     [1] Sochman et al.: Waldboost-learning for time constrained sequential detection, CVPR 2005
     """
-    logger = logger or logging.getLogger("WaldBoost")
+    logger = logger or logging.getLogger("training")
 
-    learner = Learner(alpha=alpha, wh=DTree, max_depth=max_depth, min_samples_leaf=10)
-    pool = SamplePool(min_tp=n_pos, min_fp=n_neg, min_tp_iou=min_tp_iou)
+    if len(model) != len(learner):
+        raise RuntimeError("Model length and learner length are not consistent")
 
-    stats = defaultdict(list)
-    for stage in range(1,length+1):
+    if len(model) > 0:
+        logger.info(f"{len(model)} stages are already present, continuing")
+
+    for stage in range(len(model), length):
         logger.info(f"Training stage {stage}")
         pool.update(model, training_images)
         X0,H0 = pool.get_false_positives()
         X1,H1 = pool.get_true_positives()
-        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta_schedule(stage, learner.P0))
+        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta_schedule(stage, learner.false_positive_rate))
+        logger.debug(f"Loss: {loss:0.5f}, fpr: {p0:0.5f}, tpr: {p1:0.5f}")
         for cb in callbacks:
             cb(model, learner, stage)
-        stats["loss"].append(loss)
-        stats["p0"].append(p0)
-        stats["p1"].append(p1)
-    return stats
