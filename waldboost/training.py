@@ -2,6 +2,7 @@
 
 
 import logging
+import pickle
 
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
@@ -106,14 +107,51 @@ def loss(H0, H1):
 
 class Learner:
     """ Training algorithm """
-    def __init__(self, alpha=0.1, logger=None, wh=DTree, **wh_args):
-        self.logger = logger = logging.getLogger(__name__)
+    def __init__(self, alpha=0.1, wh=DTree, **wh_args):
         self.alpha = alpha
         self.wh = wh
         self.wh_args = wh_args
-        self.P0 = 1
-        self.P1 = 1
-        self.loss = None
+        self.p0 = []
+        self.p1 = []
+        self.losses = []
+
+    @staticmethod
+    def from_dict(d):
+        L = Learner(alpha=d["alpha"], wh=d["wh"], **d["wh_args"])
+        L.p0 = d["p0"]
+        L.p1 = d["p1"]
+        L.losses = d["losses"]
+        if len(L.p0) != len(L.loss) or len(L.p1) != len(L.loss):
+            raise ValueError("Wrong values for p0, p1 or loss")
+        return L
+
+    def save(self, filename):
+        with open(filename, "wb") as f:
+            pickle.dump(self.__dict__, f)
+
+    @staticmethod
+    def load(filename):
+        with open(filename, "rb") as f:
+            return Learner.from_dict(pickle.load(f))
+
+    @property
+    def false_positive_rate(self):
+        return np.prod(self.p0)
+
+    @property
+    def true_positive_rate(self):
+        return np.prod(self.p1)
+
+    @property
+    def loss(self):
+        return self.losses[-1] if self.losses else None
+
+    def get_stats(self):
+        return {
+            "false_positive_rate": np.cumprod(self.p0),
+            "true_positive_rate": np.cumprod(self.p1),
+            "loss": np.array(self.losses),
+        }
 
     def fit_stage(self, model, X0, H0, X1, H1, theta=None, **wh_args):
         """ Append new stage to the model """
@@ -125,20 +163,21 @@ class Learner:
         # Update H
         H0 = H0 + weak.predict(X0)
         H1 = H1 + weak.predict(X1)
+
         # Fit threshold
         if not theta:
-            theta = fit_rejection_threshold(H0, self.P0, H1, self.P1, self.alpha)
+            theta = fit_rejection_threshold(H0, self.false_positive_rate, H1, self.true_positive_rate, self.alpha)
 
         # calc p and update P
         p0 = (H0>=theta).sum() / H0.size
         p1 = (H1>=theta).sum() / H1.size
-        self.P0 *= p0
-        self.P1 *= p1
-        self.loss = loss(H0, H1)
+        self.p0.append(p0)
+        self.p1.append(p1)
+        self.losses.append(loss(H0, H1))
 
         model.append(weak, theta)
 
-        return self.loss, self.P0, self.P1
+        return self.loss, self.false_positive_rate, self.true_positive_rate
 
 
 def fit_rejection_threshold(H0, P0, H1, P1, alpha):
