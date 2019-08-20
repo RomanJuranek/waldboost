@@ -57,6 +57,48 @@ def grad_hist(image, n_bins=4, full=False, bias=4):
     else:
         return chns_value
 
+@nb.stencil(neighborhood=((-1,1),(-1,1)))
+def _grad_x(arr):
+    """ Convolution with horizontal derivative kernel
+    H = [[-1, 0, 1],
+         [-2, 0, 2],
+         [-1, 0, 1]]
+    """
+    dx = -(arr[-1,-1] + 2*arr[0,-1] + arr[1,-1]) + \
+           arr[-1, 1] + 2*arr[0, 1] + arr[1, 1]
+    return dx
+
+
+@nb.stencil(neighborhood=((-1,1),(-1,1)))
+def _grad_y(arr):
+    """ Convolution with vertical derivative kernel
+    H = [[-1,-2,-1],
+         [ 0, 0, 0],
+         [ 1, 2, 1]]
+    """
+    dy = -(arr[-1,-1] + 2*arr[-1,0] + arr[-1,1]) + \
+           arr[ 1,-1] + 2*arr[ 1,0] + arr[ 1,1]
+    return dy
+
+
+@nb.njit(["i4[:,:,:](u1[:,:],i4)"], nogil=True)
+def _grad_hist_4(arr, bias):
+    dst_shape = (arr.shape[0], arr.shape[1], 4)
+    dx = np.empty(arr.shape, np.int32)
+    dy = np.empty(arr.shape, np.int32)
+    dx[:] = _grad_x(arr)
+    dy[:] = _grad_y(arr)
+    y = np.empty(dst_shape, nb.int32)
+    y[...,0] = dx
+    y[...,1] = 0.7 * dx - 0.7 * dy
+    y[...,2] = dy
+    y[...,3] = 0.7 * dx + 0.7 * dy
+    return np.fmax(np.abs(y)-bias, np.int32(0))
+
+
+def grad_hist_4(arr, bias=25):
+    return _grad_hist_4(arr, bias)
+
 
 @nb.njit(nogil=True)
 def avg_pool_2(arr):
@@ -103,6 +145,7 @@ def smooth_image_3d(arr):
 
 
 def _image_octaves(image, min_size=(16,16)):
+    """ Generate downsampled images """
     base_image = image.copy()
     while True:
         yield base_image
@@ -113,6 +156,7 @@ def _image_octaves(image, min_size=(16,16)):
 
 
 def channel_pyramid(image, channel_opts):
+    """ Generate image pyramid """
     shrink = channel_opts["shrink"]
     n_per_oct = channel_opts["n_per_oct"]
     smooth = channel_opts["smooth"]

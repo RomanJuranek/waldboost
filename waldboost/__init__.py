@@ -33,28 +33,31 @@ stats = wb.train(model, training_images)
 
 # Draw next image from generator and detect
 image,*_ = next(training_images)
-bbs,scores = wb.detect(image, model)
+boxes = wb.detect(image, model)
 
-# bbs and scores contain locations of detected objects
+# boxes contain locations and scores of detected objects
+rects = boxes.get()  # rects is (N,4) array with [ymin,xmin,ymax,xmax] coordinates
 """
 
 
 import logging
 from collections import defaultdict
-from typing import List
 
 import numpy as np
 from pkg_resources import resource_filename
 
-from . import bbox, channels, fpga, nb_channels
-from .channels import grad_hist, grad_mag
+from . import bbox, channels
 from .model import Model
 from .samples import SamplePool
 from .training import BasicRejectionSchedule, DTree, Learner
 
 
-with open(resource_filename(__name__, "VERSION"), "r") as f:
-    __version__ = f.read().strip()
+def _set_version():
+    with open(resource_filename(__name__, "VERSION"), "r") as f:
+        return f.read().strip()
+
+
+__version__ = _set_version()
 
 
 load = load_model = Model.load
@@ -73,7 +76,7 @@ def detect(image, model):
     return model.detect(image)
 
 
-def detect_multiple(image, *models:List[Model], channel_opts=None, response_scale=None, separate=False):
+def detect_multiple(image, *models, channel_opts=None, response_scale=None, separate=False):
     """ Detect objects in image using multiple detectors (with shared channel options)
 
     Inputs
