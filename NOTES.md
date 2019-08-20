@@ -77,3 +77,6 @@
 ## Verification
 * Verification - better log, validation set, show fp/fn rates
 * bbox regression?
+
+## FIXME
+* SamplePool is slow when len(self.samples) gets large

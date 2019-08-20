@@ -22,16 +22,15 @@ class Model(object):
         self.prediction = prediction
         self.theta = theta
 
-    def channels(self, X):
-        for
-
     def predict_stage_on_image(self, X, rs, cs):
-        node = np.zeros(rs.size, int32)
+        node = np.zeros(rs.size, np.int32)
         for k in range(rs.size):
-            n = int32(0)
+            n = np.int32(0)
+            r = rs[k]
+            c = cs[k]
             while (self.left[n] != -1):
                 _r,_c,_ch = self.feature[n,:]
-                split = X[rs[k]+_r,cs[k]+_c,_ch] <= self.threshold[n]
+                split = 0#X[r+_r,c+_c,_ch] <= self.threshold[n]
                 n = self.left[n] if split else self.right[n]
             node[k] = n
         return self.prediction[node]
@@ -39,6 +38,8 @@ class Model(object):
     def predict_on_image(self, X):
         u,v,ch_image = X.shape
         m,n,ch_cls = self.shape
+        if ch_image != ch_cls:
+            raise ValueError("X")
         idx = np.arange(max(u-m,0)*max(v-n,0), dtype=np.int32)
         rs = idx % (u-m)
         cs = idx // (u-m)
