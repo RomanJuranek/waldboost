@@ -157,8 +157,8 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
 
 def train1(model,
            training_images,
-           learner,
-           pool,
+           learner=Learner(),
+           pool=SamplePool(),
            length=64,
            theta_schedule=BasicRejectionSchedule(),
            callbacks=[],
@@ -195,13 +195,9 @@ def train1(model,
 
     Outputs
     -------
-    stats : dict
-        Training statistics with keys "loss", "p0" and "p1" - all ndarray with
-        length corresponding to number of stages in the model.
-        loss - value of loss function
-        p0   - false positive rate. The ratio of background samples that make
-               it to the stage. The value should asymptotically decrease to 0
-        p1   - true positive rate. Asymptotically decreases to 1-alpha
+    learner : Learner
+        Instance of Learner that was used for training. In case when the
+        learner was passed to the function this is the same instance.
 
     Example
     -------
@@ -242,3 +238,5 @@ def train1(model,
         logger.debug(f"Loss: {loss:0.5f}, fpr: {p0:0.5f}, tpr: {p1:0.5f}")
         for cb in callbacks:
             cb(model, learner, stage)
+
+    return learner

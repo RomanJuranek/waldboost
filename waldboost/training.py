@@ -90,6 +90,7 @@ class DTree:
             node[idx[~bin]] = rnode
         return self.prediction[node]
 
+
 # def sample_training_data(X, H, W, n_samples=None, trim_ratio=0.2):
 #     if n_samples and n_samples < H.size:
 #         idx = weighted_sampling(n_samples, p=W/W.sum(), trim_ratio=trim_ratio)
