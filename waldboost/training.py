@@ -122,7 +122,7 @@ class Learner:
         L.p0 = d["p0"]
         L.p1 = d["p1"]
         L.losses = d["losses"]
-        if len(L.p0) != len(L.loss) or len(L.p1) != len(L.loss):
+        if len(L.p0) != len(L.losses) or len(L.p1) != len(L.losses):
             raise ValueError("Wrong values for p0, p1 or loss")
         return L
 
@@ -148,7 +148,7 @@ class Learner:
         return self.losses[-1] if self.losses else None
 
     def __len__(self):
-        return len(self.loss)
+        return len(self.losses)
 
     def get_stats(self):
         return {

@@ -155,7 +155,7 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
     return bbox.np_box_list_ops.concatenate(dt_boxes) if dt_boxes else None
 
 
-def train1(model,
+def train(model,
            training_images,
            learner=Learner(),
            pool=SamplePool(),
@@ -178,19 +178,23 @@ def train1(model,
         X,Y,*_ = next(training_images), where X must be ndarray with shape (H,W,C)
         with C>=1 and X.ndim==3. And Y is ndarray with shape (N,5) specifying
         locations of objects in the image in x,y,w,h,ignore format.
-    length : scalar int
-        Desired length of the model
-    alpha : scalar float
-        Maximum false negative rate of the classifier (see [1])
-    min_tp_iou : scalar float
-        Minimal IOU of object samples with ground truth. Samples with IOU > min_tp_iou
-        will be considered as positive
-    n_pos, n_neg : scalar int
-        Number of positive (resp. negative) samples for stage training
-    max_depth : scalar int
-        Depth of decision trees in the model
+    learner : Learner
+        Learner that adds new stages to the model. If none supplied, an instance
+        of Learner with default parameters is created. This instance is also
+        returned from the function in order to enable training continuation.
+    pool : SamplePool
+        Object that holds training samples.
+    length : int
+        Total number of stages to train, i.e. len(model) == length after train
+        finish.
+    theta_schedule : callable
+        A function that decides (based on current false positive rate and stage number)
+        if rejection threshold for the current stage should be learned. If no
+        function is given, an instance of BasicRejectionSchedule is used.
     callbacks : list of functions
-        List of functions with signature: callback(model, learner, stage)
+        List of functions with signature: callback(model, learner, stage). After training
+        each stage, all functions are executed. This may be useful for monitoring
+        loss function or displaying detection results on a testing image.
     logger : logging.Logger
 
     Outputs
