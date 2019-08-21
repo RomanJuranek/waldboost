@@ -233,9 +233,10 @@ class SamplePool(object):
         self.logger = logger or logging.getLogger("SamplePool")
 
     def print_stats(self):
-        print("Pool stats:")
-        print(f"tp: {self.n_tp}; fp: {self.n_fp}")
-        print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
+        #print("Pool stats:")
+        #print(f"tp: {self.n_tp}; fp: {self.n_fp}")
+        #print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
+        pass
 
     def update(self, model, gen):
         self.prune(model)
@@ -251,7 +252,7 @@ class SamplePool(object):
                 new_fp = (sample_label==-1).sum()
                 self.n_tp += new_tp
                 self.n_fp += new_fp
-                self.logger.debug(f"Added {new_tp} tp and {new_tp} fp samples")
+                self.logger.debug(f"Added {new_tp} tp and {new_fp} fp samples")
                 if not self.require_tp and not self.require_fp:
                     break
             else:
