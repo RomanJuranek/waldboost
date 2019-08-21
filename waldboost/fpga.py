@@ -79,7 +79,7 @@ def H(*p):
 
 def _fit_threshold(x0,x1,w0,w1,xmin,xmax):
     """ Find threshold to split v0 and v1 using information gain """
-    bins = np.arange(xmin,xmax+1)
+    bins = np.arange(xmin-1,xmax+2)
     p0,_ = np.histogram(x0, bins, weights=w0)
     p1,_ = np.histogram(x1, bins, weights=w1)
     l0 = np.cumsum(p0)
@@ -128,7 +128,12 @@ class DTree:
     though the former has more options due to sklearn implementation.
     """
     @staticmethod
-    def fit(X0, W0, X1, W1, max_depth=2, min_samples_leaf=10, allowed_features=None, clip=3, quantizer=32):
+    def fit(X0, W0, X1, W1,
+            max_depth=2,
+            min_samples_leaf=10,
+            allowed_features=None,
+            clip=3,
+            quantizer=32):
         """ Train decision tree
 
         Inputs
@@ -237,11 +242,9 @@ channel_opts = {
 
 def train(model,
           training_images,
+          learner=Learner(wh=DTree),
+          pool=SamplePool(),
           length=64,
-          alpha=0.2,
-          max_tp_dist=0.25,
-          n_pos=1000,
-          n_neg=1000,
           max_depth=2,
           theta_schedule=BasicRejectionSchedule(),
           bank_pattern_shape=(2,2),
@@ -274,34 +277,47 @@ def train(model,
     --------
     waldboost.train     Basline training pipeline
 
+    Notes
+    -----
+    When continuing training (initialized model and learner instances are given), bank_pattern_shape
+    and quantization parameters should be set to the same values as in the prior training. This is not
+    checked anywhere. Using different parameters is allowed but such detector will probably be useless
+    in hardware implementation (which is purpose of this function).
+
     """
     logger = logger or logging.getLogger("WaldBoost/FPGA")
 
-    learner = Learner(alpha=alpha, wh=FPGA_DTree, max_depth=max_depth, clip=clip, quantizer=quantizer)
-    pool = SamplePool(min_tp=n_pos, min_fp=n_neg)
-    pool.max_tp_dist = max_tp_dist
+    if len(model) != len(learner):
+        raise RuntimeError("Model length and learner length are not consistent")
+
+    if learner.wh is not DTree:
+        logger.warning("Correcting learner.wh to fpga.DTree")
+        learner.wh = DTree
+
+    if "max_depth" not in learner.wh_args or \
+       learner.wh_args["max_depth"] != max_depth:
+        learner.wh_args["max_depth"] = max_depth  # FIXME: we are not supposed to touch Learner internals
+
+    if len(model) > 0:
+        logger.info(f"{len(model)} stages are already present, continuing")
 
     if bank_pattern_shape is not None:
         banks = PixelBanks(model.shape, bank_pattern_shape)
         scheduler = BankScheduler(np.prod(bank_pattern_shape))
 
-    stats = defaultdict(list)
-
-    for stage in range(1,length+1):
+    for stage in range(len(model), length):
         logger.info(f"Training stage {stage}")
         pool.update(model, training_images)
-        X0,H0 = pool.gather_samples(0)
-        X1,H1 = pool.gather_samples(1)
+        X0,H0 = pool.get_false_positives()
+        X1,H1 = pool.get_true_positives()
         if bank_pattern_shape is not None:
             stage_banks = scheduler.schedule(max_depth)
             ftrs = [banks.bank_pixels(b) for b in stage_banks]
         else:
             ftrs = None
-        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta_schedule(stage,learner.P0))
+        loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta_schedule(stage, learner.false_positive_rate))
+        logger.debug(f"Loss: {loss:0.5f}, fpr: {p0:0.5f}, tpr: {p1:0.5f}")
         for cb in callbacks:
             cb(model, learner, stage)
-        stats["loss"].append(loss)
-        stats["p0"].append(p0)
-        stats["p1"].append(p1)
 
-    return stats
+    return learner
