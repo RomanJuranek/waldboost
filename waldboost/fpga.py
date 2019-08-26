@@ -242,8 +242,8 @@ channel_opts = {
 
 def train(model,
           training_images,
-          learner=Learner(wh=DTree),
-          pool=SamplePool(),
+          learner=None,
+          pool=None,
           length=64,
           max_depth=2,
           theta_schedule=BasicRejectionSchedule(),
@@ -287,6 +287,14 @@ def train(model,
     """
     logger = logger or logging.getLogger("WaldBoost/FPGA")
 
+    if len(model) >= length:
+        return
+
+    learner = learner or Learner(wh=DTree)
+
+    if not isinstance(learner.wh, DTree):
+        raise ValueError(f"Learner.wh should be waldboost.fpga.DTree")
+
     if len(model) != len(learner):
         raise RuntimeError("Model length and learner length are not consistent")
 
@@ -304,6 +312,8 @@ def train(model,
     if bank_pattern_shape is not None:
         banks = PixelBanks(model.shape, bank_pattern_shape)
         scheduler = BankScheduler(np.prod(bank_pattern_shape))
+
+    pool = pool or SamplePool()
 
     for stage in range(len(model), length):
         logger.info(f"Training stage {stage}")

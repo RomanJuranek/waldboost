@@ -150,6 +150,9 @@ class Learner:
     def __len__(self):
         return len(self.losses)
 
+    def __bool__(self):
+        return True
+
     def get_stats(self):
         return {
             "false_positive_rate": np.cumprod(self.p0),

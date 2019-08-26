@@ -71,12 +71,25 @@ def save_model(model, filename):
 save = save_model
 
 
-def detect(image, model):
+def detect(image,
+           model,
+           iou_threshold=0.2,
+           score_threshold=-10):
     """ Detect objects in image. See Model.detect """
-    return model.detect(image)
+    boxes = model.detect(image)
+    if boxes is not None:
+        boxes = bbox.non_max_suppression(boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
+    return boxes
 
 
-def detect_multiple(image, *models, channel_opts=None, response_scale=None, separate=False):
+
+def detect_multiple(image,
+                    *models,
+                    channel_opts=None,
+                    response_scale=None,
+                    separate=False,
+                    iou_threshold=0.2,
+                    score_threshold=-10):
     """ Detect objects in image using multiple detectors (with shared channel options)
 
     Inputs
@@ -149,16 +162,20 @@ def detect_multiple(image, *models, channel_opts=None, response_scale=None, sepa
                     scores = np.zeros((boxes.num_boxes(),n_classes), "f")
                     scores[:,k] = h * response_scale[k]
                 else:
-                    scores = h.reshape((-1,1)) * response_scale[k]
+                    scores = h * response_scale[k]
                 boxes.add_field("scores", scores)
                 dt_boxes.append(boxes)
-    return bbox.np_box_list_ops.concatenate(dt_boxes) if dt_boxes else None
+    dt_boxes = bbox.np_box_list_ops.concatenate(dt_boxes) if dt_boxes else None
+    if dt_boxes is not None:
+        nms_func = bbox.non_max_suppression if not separate else bbox.multi_class_non_max_suppression
+        dt_boxes = nms_func(dt_boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
+    return dt_boxes
 
 
 def train(model,
            training_images,
-           learner=Learner(),
-           pool=SamplePool(),
+           learner=None,
+           pool=None,
            length=64,
            theta_schedule=BasicRejectionSchedule(),
            callbacks=[],
@@ -227,11 +244,18 @@ def train(model,
     """
     logger = logger or logging.getLogger("training")
 
-    if len(model) != len(learner):
+    if len(model) >= length:
+        return
+
+    learner = learner or Learner()
+
+    if  len(model) != len(learner):
         raise RuntimeError("Model length and learner length are not consistent")
 
     if len(model) > 0:
         logger.info(f"{len(model)} stages are already present, continuing")
+
+    pool = pool or SamplePool()
 
     for stage in range(len(model), length):
         logger.info(f"Training stage {stage}")
