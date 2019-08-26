@@ -132,10 +132,12 @@ def read_bbgt(filename):
             rects.append(rect)
             ignore.append(ign)
             labels.append(lbl)
-    boxes = None
-    if rects:
-        boxes = bbox_list(np.array(rects,"f"),
-                          format=RectFormat.XYWH,
-                          ignore=np.array(ignore),
-                          labels=np.array(labels))
+    if not rects:
+        rects = np.empty((0,4),"f")
+        ignore = np.empty(0,"i")
+        labels = np.empty(0,"i")
+    boxes = bbox_list(np.array(rects,"f"),
+                    format=RectFormat.XYWH,
+                    ignore=np.array(ignore,"i"),
+                    labels=np.array(labels,"i"))
     return boxes

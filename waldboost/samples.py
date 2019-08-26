@@ -79,6 +79,7 @@ def select_candidates(condition, max_candidates:int) -> np.ndarray:
 
 
 class SampleLabel:
+    """ Constants for labeling samples as true/false positives """
     TRUE_POSITIVE = 1
     FALSE_POSITIVE = -1
     IGNORE = 0
