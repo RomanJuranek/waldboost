@@ -89,18 +89,19 @@ def draw_detections(img, model, nms=False, min_score=-10):
 def fake_data_generator():
     while True:
         image = np.zeros( (256,256), "f" )
-        gt = []
-        n_objects = np.random.randint(1,3)
+        gt = [  ]
+        n_objects = np.random.randint(0,4)
         for _ in range(n_objects):
-            w = np.random.randint(20,100)
+            w = np.random.randint(30,50)
             x = np.random.randint(256-w)
             y = np.random.randint(256-w)
             i =  np.random.uniform(0.2,1)
             image[y:y+w,x:x+w] += i
             gt.append( [y-5,x-5,y+w+10,x+w+10] )
-        image += 0.05*np.random.rand(*image.shape)
+        image += 0.1*np.random.rand(*image.shape)
         image = (np.clip(image, 0,1)*255).astype("u1")
-        gt_boxes = groundtruth.bbox_list(np.array(gt,"f"))
+        gt = np.array(gt,"f") if gt else np.empty((0,4))
+        gt_boxes = groundtruth.bbox_list(gt)
         yield np.atleast_3d(image), gt_boxes
 
 
@@ -110,10 +111,10 @@ class ShowImageCallback():
         self.image = image
         self.kws = kws
     def __call__(self, model, learner, stage):
-        if learner.P0 < 0.05:
+        if learner.false_positive_rate < 0.05:
             I = draw_detections(self.image, model, **self.kws)
             cv2.imshow("x", I)  # pylint: disable=no-member
-            cv2.waitKey(10)  # pylint: disable=no-member
+            cv2.waitKey(20)  # pylint: disable=no-member
 
 
 def class_prob_callback(model, learner, stage):

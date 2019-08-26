@@ -77,10 +77,9 @@ def detect(image,
            score_threshold=-10):
     """ Detect objects in image. See Model.detect """
     boxes = model.detect(image)
-    if boxes is not None:
+    if boxes.num_boxes() > 0:
         boxes = bbox.non_max_suppression(boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
     return boxes
-
 
 
 def detect_multiple(image,
@@ -156,17 +155,16 @@ def detect_multiple(image,
         for k, model in enumerate(models):
             # Evaluate each model on the channels
             r,c,h = model.predict_on_image(chns)
-            if r.size:
-                boxes = bbox.BoxList(model.get_boxes(r, c, scale))
-                if separate:
-                    scores = np.zeros((boxes.num_boxes(),n_classes), "f")
-                    scores[:,k] = h * response_scale[k]
-                else:
-                    scores = h * response_scale[k]
-                boxes.add_field("scores", scores)
-                dt_boxes.append(boxes)
-    dt_boxes = bbox.np_box_list_ops.concatenate(dt_boxes) if dt_boxes else None
-    if dt_boxes is not None:
+            boxes = bbox.BoxList(model.get_boxes(r, c, scale))
+            if separate:
+                scores = np.zeros((boxes.num_boxes(),n_classes), "f")
+                scores[:,k] = h * response_scale[k]
+            else:
+                scores = h * response_scale[k]
+            boxes.add_field("scores", scores)
+            dt_boxes.append(boxes)
+    dt_boxes = bbox.np_box_list_ops.concatenate(dt_boxes)
+    if dt_boxes.num_boxes() > 0:
         nms_func = bbox.non_max_suppression if not separate else bbox.multi_class_non_max_suppression
         dt_boxes = nms_func(dt_boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
     return dt_boxes

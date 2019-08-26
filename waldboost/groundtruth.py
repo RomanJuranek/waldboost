@@ -104,7 +104,6 @@ def bbox_list(rects, format=RectFormat.YXYX, **fields):
             rects = np.hstack([b,a,b+d-1,a+c-1])
         elif format == RectFormat.XYXY:
             rects = np.hstack([b,a,d,c])
-    print(rects, rects.shape)
     boxes = bbox.BoxList(rects.astype("f"))
     for field_name, value in fields.items():
         boxes.add_field(field_name, value)

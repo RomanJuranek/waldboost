@@ -163,11 +163,10 @@ class Model:
         dt_boxes = []
         for chns, scale in self.channels(image):
             r,c,h = self.predict_on_image(chns)
-            if r.size:
-                boxes = bbox.BoxList(self.get_boxes(r,c,scale))
-                boxes.add_field("scores", h)
-                dt_boxes.append(boxes)
-        return bbox.np_box_list_ops.concatenate(dt_boxes, {"scores"}) if dt_boxes else None
+            boxes = bbox.BoxList(self.get_boxes(r,c,scale))
+            boxes.add_field("scores", h)
+            dt_boxes.append(boxes)
+        return bbox.np_box_list_ops.concatenate(dt_boxes)
 
     def predict(self, X):
         """ Predict model on samples

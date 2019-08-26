@@ -49,6 +49,7 @@
 * Applications
   * training - waldboost-train -i dataset --n0=1000 --alpha=0.2 -o test.pb
   * detection - waldboost-detect -m test.pb image.jpg image1.jpg ...
+* Handle corner cases - no boxes on image, image too small for channels etc.
 
 ## Training
 * Better API for Learner - methods object_prob, bg_prob, loss
