@@ -8,6 +8,7 @@ waldboost.model.Model
 
 import logging
 import zlib
+from importlib import import_module
 
 import numpy as np
 from google.protobuf.message import DecodeError
@@ -21,12 +22,9 @@ def symbol_name(s):
     return s.__module__ + "." + s.__qualname__
 
 
-def symbol_from_name(name):
-    print(f"Initializing symbol {name}")
-    from importlib import import_module
-    m,_ = name.split(".",1)
-    ls = {m: import_module(m)}
-    return eval(name, {}, ls)
+def symbol_from_name(name:str):
+    module,_,symbol = name.rpartition(".")
+    return eval(f"m.{symbol}", {"m":import_module(module)}) if module else eval(name)
 
 
 class Model:
