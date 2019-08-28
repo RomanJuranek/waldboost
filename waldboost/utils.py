@@ -3,9 +3,14 @@ Dirty code
 """
 
 
-import numpy as np
 import cv2
-from . import groundtruth
+import matplotlib as mpl
+import numpy as np
+from matplotlib import cm
+
+import waldboost as wb
+
+from . import groundtruth, bbox
 
 
 def takemin(iterable, objective=None):
@@ -47,43 +52,44 @@ def montage(X, nrows=4, ncols=4, figsize=None):
     plt.show()
 
 
-def draw_detections(img, model, nms=False, min_score=-10):
-    import numpy as np
-    import matplotlib as mpl
-    from matplotlib import cm
-    from . import bbox
-    #from .verification import detect_and_verify
-    import cv2
-    #cv2.namedWindow("x", cv2.WINDOW_NORMAL)
+def draw_detections(image,
+                      dt_boxes,
+                      gt_boxes=None, *,
+                      dt_thickness=1,
+                      gt_thickness=1,
+                      gt_color=(255,0,0)): 
+    """ Draw detected objects in image
 
-    boxes = model.detect(img)
+    Inputs
+    ------
+    image : ndarray
+        Image to draw the boxes in. Gray or BGR uint8 image.
+    dt_boxes : BoxList
+        Detected boxes with optional fields "scores", "tp_label", "classes".
+    gt_boxes : BoxList
+        Ground truth boxes
+    """
+    img = image.copy()
+    if image.shape[2] == 1:
+        img = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
+    
+    # Draw gt_boxes
+    for ymin,xmin,ymax,xmax in gt_boxes.get().astype("i"):
+        cv2.rectangle(img, (xmin,ymin), (xmax,ymax), gt_color, thickness=gt_thickness)
 
-    I = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
+    # Draw dt_boxes
+    if dt_boxes.num_boxes() > 0:
+        scores = dt_boxes.get_field("scores")
+        N = mpl.colors.Normalize(vmin=scores.min()-1e-1, vmax=scores.max())
+        colors = cm.plasma
 
-    if not boxes:
-        return I
-
-    if nms:
-        boxes = bbox.np_box_list_ops.non_max_suppression(boxes, iou_threshold=0.2, score_threshold=min_score)
-    else:
-        boxes = bbox.np_box_list_ops.filter_scores_greater_than(boxes, min_score)
-
-    if not boxes or boxes.num_boxes() == 0:
-        return I
-
-    scores = boxes.get_field("scores")
-    v0, v1 = scores.min()-1e-1, scores.max()
-
-    N = mpl.colors.Normalize(vmin=v0, vmax=v1)
-    colors = cm.plasma
-
-    boxes = bbox.sort_by_field(boxes, "scores", bbox.SortOrder.ASCEND)
-    for (ymin,xmin,ymax,xmax),score in zip(boxes.get().astype("i"), boxes.get_field("scores") ):
-        clr = (255*np.array(colors(N(score)))[2::-1]).astype("u1")
-        clr = tuple(map(int, clr))
-        cv2.rectangle(I, (xmin,ymin), (xmax,ymax), clr, thickness=4 if nms else 1)
-
-    return I
+        dt_boxes = bbox.sort_by_field(dt_boxes, "scores", bbox.SortOrder.ASCEND)
+        for (ymin,xmin,ymax,xmax),score in zip(dt_boxes.get().astype("i"), dt_boxes.get_field("scores") ):
+            clr = (255*np.array(colors(N(score)))[2::-1]).astype("u1")
+            clr = tuple(map(int, clr))
+            cv2.rectangle(img, (xmin,ymin), (xmax,ymax), clr, thickness=dt_thickness)
+    
+    return img
 
 
 def fake_data_generator():
@@ -107,13 +113,14 @@ def fake_data_generator():
 
 class ShowImageCallback():
     """Callback that shows image and detections"""
-    def __init__(self, image, **kws):
+    def __init__(self, image, gt_boxes):
         self.image = image
-        self.kws = kws
+        self.gt = gt_boxes
     def __call__(self, model, learner, stage):
         if learner.false_positive_rate < 0.05:
-            I = draw_detections(self.image, model, **self.kws)
-            cv2.imshow("x", I)  # pylint: disable=no-member
+            dt_boxes = model.detect(self.image)
+            I = draw_detections(self.image, dt_boxes, self.gt, gt_thickness=3, gt_color=(255,0,0))
+            cv2.imshow("Testing image", I)  # pylint: disable=no-member
             cv2.waitKey(20)  # pylint: disable=no-member
 
 
