@@ -292,7 +292,7 @@ def train(model,
 
     learner = learner or Learner(wh=DTree)
 
-    if not isinstance(learner.wh, DTree):
+    if learner.wh is not DTree:
         raise ValueError(f"Learner.wh should be waldboost.fpga.DTree")
 
     if len(model) != len(learner):
