@@ -3,7 +3,8 @@ syntax = "proto3";
 message Model {
     repeated int32 shape = 1;
     ChannelOpts channel_opts = 2;
-    repeated WeakClassifier classifier = 3;
+    repeated DTree classifier = 3;
+    repeated float theta = 4;
 }
 
 message ChannelOpts {
@@ -14,31 +15,10 @@ message ChannelOpts {
     repeated string func = 5;
 }
 
-message DStump {
-    repeated int32 ftr = 1;
-    float thr = 2;
-    repeated float pred = 3;
-    float err = 4;
-}
-
 message DTree {
-    repeated DStump nodes = 1;
-    repeated int32 leaf_tag = 3;
-}
-
-message SKLearnDTree {
     repeated int32 feature = 1;
     repeated float threshold = 2;
     repeated int32 left = 3;
     repeated int32 right = 4;
     repeated float prediction = 5;
-}
-
-message WeakClassifier {
-    oneof weak {
-        DStump dstump = 1;
-        DTree dtree = 2;
-        SKLearnDTree dtree1 = 4;
-    }
-    float theta = 3;
 }

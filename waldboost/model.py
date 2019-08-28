@@ -61,6 +61,7 @@ class Model:
         self.shape = shape
         self.channel_opts = channel_opts
         self.classifier = []
+        self.theta = []
         self.reset()
 
     @property
@@ -86,7 +87,8 @@ class Model:
         self.n_weak = 0
 
     def __getitem__(self, i):
-        return self.classifier[i]
+        return self.classifier[i], self.theta[i]
+
 
     def channels(self, image):
         """ Iterator over channel pyramid of the given image
@@ -193,7 +195,7 @@ class Model:
         assert tuple(shape) == tuple(self.shape), f"Invalid shape of X. Expected {self.shape}, given {shape}"
         H = np.zeros(n, np.float32)
         mask = np.ones(n, np.bool)
-        for weak, theta in self.classifier:
+        for weak, theta in self:
             H[mask] += weak.predict(X[mask,...])
             if theta == -np.inf:
                 continue
@@ -228,7 +230,7 @@ class Model:
         cs = idx // (u-m)
         hs = np.zeros_like(rs, np.float32)
         self.n_loc += hs.size  # pylint: disable=no-member
-        for weak, theta in self.classifier:
+        for weak, theta in self:
             if not rs.size: break
             hs += weak.predict_on_image(X, rs, cs)
             self.n_weak += hs.size  # Stats
@@ -248,6 +250,9 @@ class Model:
         """ True if there is at least one stage in the classifier """
         return bool(self.classifier)
 
+    def __iter__(self):
+        yield from zip(self.classifier, self.theta)
+
     def append(self, weak, theta):
         """ Add new stage to the classifier
 
@@ -258,7 +263,8 @@ class Model:
         theta : scalar
             Rejection threshold
         """
-        self.classifier.append( (weak, theta) )
+        self.classifier.append(weak)
+        self.theta.append(theta)
 
     def as_proto(self, proto):
         """ Fill model_pb2.Model structure
@@ -272,8 +278,7 @@ class Model:
         -----
         Fills the structure or overwrites whatever there was.
         """
-        proto.ClearField("shape")
-        proto.ClearField("classifier")
+        proto.Clear()
         proto.shape.extend(self.shape)
         proto.channel_opts.shrink = self.channel_opts["shrink"]
         proto.channel_opts.n_per_oct = self.channel_opts["n_per_oct"]
@@ -281,10 +286,11 @@ class Model:
         proto.channel_opts.target_dtype = symbol_name(self.channel_opts["target_dtype"])
         for f in self.channel_opts["channels"]:
             proto.channel_opts.func.append(symbol_name(f))
-        for weak,theta in self.classifier:
-            w_pb = proto.classifier.add()
-            w_pb.theta = theta
-            weak.as_proto(w_pb.dtree1)
+        for weak,theta in self:
+            w_pb = model_pb2.DTree()
+            weak.as_proto(w_pb)
+            proto.classifier.append(w_pb)
+            proto.theta.append(theta)
 
     @staticmethod
     def from_proto(proto):
@@ -298,10 +304,9 @@ class Model:
             "channels": [ symbol_from_name(s) for s in proto.channel_opts.func ],
         }
         M = Model(shape, channel_opts)
-        for weak_proto in proto.classifier:
-            theta = weak_proto.theta
-            weak = DTree.from_proto(weak_proto.dtree1)
-            M.append(weak, theta)
+        for weak_proto, theta_proto in zip(proto.classifier, proto.theta):
+            weak = DTree.from_proto(weak_proto)
+            M.append(weak, theta_proto)
         return M
 
     def save(self, filename, compress=False):
