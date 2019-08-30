@@ -52,22 +52,22 @@
 * Handle corner cases - no boxes on image, image too small for channels etc.
 
 ## Training
-* Better API for Learner - methods object_prob, bg_prob, loss
-* Resume learning
-  * save/load learner to file
-  * supply learer to training
+* ~~Better API for Learner - methods object_prob, bg_prob, loss~~
+* ~~Resume learning~~
+  * ~~save/load learner to file~~
+  * ~~supply learer to training~~
 * Constant soft cascade pipeline
 
 ## Model and channels
 * Channel parametrs in proto
-* Discard old messages from proto and simplify structure
-* Correct symbol initialization when loading
-* classifier as list of DTree, theta in its own array so it can be modified
+* ~~Discard old messages from proto and simplify structure~~
+* ~~Correct symbol initialization when loading~~
+* ~~classifier as list of DTree, theta in its own array so it can be modified~~
 * Optimizations
   * Numba and CUDA for one selected variant
 
 ## Data sampling
-* Change image set during training
+* ~~Change image set during training~~ Fixed by "resume learning"
 * ~~Either update bbx package to be more consistent or use bbox (or other) package~~
 * ~~Better API for Pool~~
 * ~~Fix dt_boxes is None and gt_boxes is None cases~~
