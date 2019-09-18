@@ -181,7 +181,8 @@ def channel_pyramid(image, channel_opts):
                 chns = im
 
             if shrink == 2:
-                chns = avg_pool_2(chns)
+                #chns = avg_pool_2(chns)
+                chns = max_pool_2(chns)
 
             if smooth == 1:
                 chns = smooth_image_3d(chns)
