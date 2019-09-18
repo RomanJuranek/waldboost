@@ -1,7 +1,3 @@
-"""
-Support for FPGA stuff.
-"""
-
 import logging
 from collections import defaultdict, deque
 from itertools import count
@@ -10,66 +6,10 @@ from queue import Queue
 import numpy as np
 from scipy.ndimage import convolve1d
 
-from .samples import SamplePool
-from .training import BasicRejectionSchedule
-from .training import DTree as BaseDTree
-from .training import Learner, as_features
+from waldboost.samples import SamplePool
+from waldboost.training import Learner, BasicRejectionSchedule, as_features, DTree as BaseDTree
 
-
-def _bank_pattern(shape, block_shape):
-    assert len(shape) in [2,3], "Shape must be (H,W) or (H,W,C)"
-    if len(shape) == 2:
-        shape += (1,)
-    b = np.arange(np.prod(block_shape)).reshape(block_shape)
-    n = np.ceil(np.array(shape[:2]) / block_shape)
-    banks = np.tile(b, n.astype("i").tolist())
-    u,v,c = shape
-    banks = np.atleast_3d(np.dstack([banks]*c))
-    return banks[:u,:v,...]
-
-
-class PixelBanks:
-    def __init__(self, shape, block_shape):
-        self.pattern = _bank_pattern(shape, block_shape)
-
-    def bank_pixels(self, bank_ids):
-        return np.concatenate( [np.flatnonzero(self.pattern == b) for b in bank_ids] )
-
-
-class BankScheduler:
-    def __init__(self, n_banks=8):
-        self.n_banks = n_banks
-        self.bank_counter = count()
-
-    def schedule(self, max_depth=2):
-        return [ [next(self.bank_counter) % self.n_banks] for _ in range(max_depth)]
-
-
-def grad_hist_4(image, bias=0):
-    """
-    Integer version of grad_hist(image, n_bins=4, full=False)
-    Input image must be uint8
-    Output image is always int16
-    """
-    assert image.dtype == np.uint8
-
-    H = np.array( [1,2,1], "i4")
-    D = np.array( [-1,0,1], "i4")
-
-    im = image.astype("i4")
-
-    gy = convolve1d(convolve1d(im,H,axis=1), D, axis=0)
-    gx = convolve1d(convolve1d(im,H,axis=0), D, axis=1)
-
-    chns = np.empty(im.shape + (4,), "i4")
-
-    theta = np.linspace(0, np.pi, 5)
-    cs = np.cos(theta[:-1])
-    sn = np.sin(theta[:-1])
-    for i,(c,s) in enumerate(zip(cs,sn)):
-        chns[...,i] = gx*c - gy*s
-
-    return np.fmax(np.abs(chns)-bias, np.int32(0))
+from .banks import BankScheduler, PixelBanks
 
 
 def H(*p):
@@ -229,15 +169,6 @@ class DTree:
 
         # Return initialized waldboost.training.DTree instance
         return  BaseDTree(feature, threshold, left, right, pred)
-
-
-channel_opts = {
-    "shrink": 2,
-    "n_per_oct": 8,
-    "smooth": 0,
-    "target_dtype": np.int16,
-    "channels": [ grad_hist_4 ],
-    }
 
 
 def train(model,

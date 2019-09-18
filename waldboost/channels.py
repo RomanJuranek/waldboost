@@ -4,8 +4,6 @@ import cv2
 import numba as nb
 import numpy as np
 from scipy.ndimage import convolve1d
-from skimage.measure import block_reduce
-from skimage.transform import resize
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +38,7 @@ def grad_mag(image, norm=5, eps=1e-3):
     return mag[...,None]
 
 
-def grad_hist(image, n_bins=4, full=False, bias=4):
+def grad_hist(image, n_bins=4, full=False, bias=0):
     image = image.astype("f")
     gx, gy = gradients(image)
     max_theta = 2*np.pi if full else np.pi
@@ -52,10 +50,8 @@ def grad_hist(image, n_bins=4, full=False, bias=4):
     for i,(c,s) in enumerate(zip(cs,sn)):
         chns[...,i] = gx*c - gy*s
     chns_value = np.fmax(np.abs(chns)-bias, 0)
-    if full:
-        return np.sign(chns) * chns_value
-    else:
-        return chns_value
+    return np.sign(chns) * chns_value if full else chns_value
+
 
 @nb.stencil(neighborhood=((-1,1),(-1,1)))
 def _grad_x(arr):
@@ -79,26 +75,7 @@ def _grad_y(arr):
     dy = -(arr[-1,-1] + 2*arr[-1,0] + arr[-1,1]) + \
            arr[ 1,-1] + 2*arr[ 1,0] + arr[ 1,1]
     return dy
-
-
-@nb.njit(["i4[:,:,:](u1[:,:],i4)"], nogil=True)
-def _grad_hist_4(arr, bias):
-    dst_shape = (arr.shape[0], arr.shape[1], 4)
-    dx = np.empty(arr.shape, np.int32)
-    dy = np.empty(arr.shape, np.int32)
-    dx[:] = _grad_x(arr)
-    dy[:] = _grad_y(arr)
-    y = np.empty(dst_shape, nb.int32)
-    y[...,0] = dx
-    y[...,1] = 0.7 * dx - 0.7 * dy
-    y[...,2] = dy
-    y[...,3] = 0.7 * dx + 0.7 * dy
-    return np.fmax(np.abs(y)-bias, np.int32(0))
-
-
-def grad_hist_4(arr, bias=25):
-    return _grad_hist_4(arr, bias)
-
+    
 
 @nb.njit(nogil=True)
 def avg_pool_2(arr):
