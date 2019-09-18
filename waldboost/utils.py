@@ -74,8 +74,9 @@ def draw_detections(image,
         img = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
     
     # Draw gt_boxes
-    for ymin,xmin,ymax,xmax in gt_boxes.get().astype("i"):
-        cv2.rectangle(img, (xmin,ymin), (xmax,ymax), gt_color, thickness=gt_thickness)
+    if gt_boxes is not None:
+        for ymin,xmin,ymax,xmax in gt_boxes.get().astype("i"):
+            cv2.rectangle(img, (xmin,ymin), (xmax,ymax), gt_color, thickness=gt_thickness)
 
     # Draw dt_boxes
     if dt_boxes.num_boxes() > 0:
