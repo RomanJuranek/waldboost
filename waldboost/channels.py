@@ -53,30 +53,6 @@ def grad_hist(image, n_bins=4, full=False, bias=0):
     return np.sign(chns) * chns_value if full else chns_value
 
 
-@nb.stencil(neighborhood=((-1,1),(-1,1)))
-def _grad_x(arr):
-    """ Convolution with horizontal derivative kernel
-    H = [[-1, 0, 1],
-         [-2, 0, 2],
-         [-1, 0, 1]]
-    """
-    dx = -(arr[-1,-1] + 2*arr[0,-1] + arr[1,-1]) + \
-           arr[-1, 1] + 2*arr[0, 1] + arr[1, 1]
-    return dx
-
-
-@nb.stencil(neighborhood=((-1,1),(-1,1)))
-def _grad_y(arr):
-    """ Convolution with vertical derivative kernel
-    H = [[-1,-2,-1],
-         [ 0, 0, 0],
-         [ 1, 2, 1]]
-    """
-    dy = -(arr[-1,-1] + 2*arr[-1,0] + arr[-1,1]) + \
-           arr[ 1,-1] + 2*arr[ 1,0] + arr[ 1,1]
-    return dy
-    
-
 @nb.njit(nogil=True)
 def avg_pool_2(arr):
     u = arr.shape[0]
@@ -100,24 +76,24 @@ def max_pool_2(arr):
     return np.fmax(m0, m1)
 
 
-@nb.stencil(neighborhood=((-1,1),(-1,1)))
+@nb.stencil( neighborhood=((-1,1),(-1,1),(0,0)) )
 def _smooth(arr):
-    v =   arr[-1,-1] + 2*arr[-1,0] +   arr[-1,1] + \
-        2*arr[ 0,-1] + 4*arr[ 0,0] + 2*arr[ 0,1] + \
-          arr[ 1,-1] + 2*arr[ 1,0] +   arr[ 1,1]
-    return v / 16
+    v =   arr[-1,-1,0] + 2*arr[-1,0,0] +   arr[-1,1,0] + \
+        2*arr[ 0,-1,0] + 4*arr[ 0,0,0] + 2*arr[ 0,1,0] + \
+          arr[ 1,-1,0] + 2*arr[ 1,0,0] +   arr[ 1,1,0]
+    return v
 
 
 _signatures = [
     "f4[:,:,:](f4[:,:,:])",
     "i4[:,:,:](i4[:,:,:])",
+    "u1[:,:,:](u1[:,:,:])",
 ]
 
 @nb.njit(_signatures, nogil=True)
 def smooth_image_3d(arr):
     smoothed = np.empty_like(arr)
-    for k in range(arr.shape[2]):
-        smoothed[...,k] = _smooth(arr[...,k])
+    smoothed[:] = _smooth(arr) / 16
     return smoothed
 
 

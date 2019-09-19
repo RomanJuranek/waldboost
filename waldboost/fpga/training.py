@@ -1,13 +1,13 @@
 import logging
-from collections import defaultdict, deque
 from itertools import count
 from queue import Queue
 
 import numpy as np
-from scipy.ndimage import convolve1d
 
 from waldboost.samples import SamplePool
-from waldboost.training import Learner, BasicRejectionSchedule, as_features, DTree as BaseDTree
+from waldboost.training import BasicRejectionSchedule
+from waldboost.training import DTree as BaseDTree
+from waldboost.training import Learner, as_features
 
 from .banks import BankScheduler, PixelBanks
 

@@ -53,11 +53,11 @@ def montage(X, nrows=4, ncols=4, figsize=None):
 
 
 def draw_detections(image,
-                      dt_boxes,
-                      gt_boxes=None, *,
-                      dt_thickness=1,
-                      gt_thickness=1,
-                      gt_color=(255,0,0)): 
+                    dt_boxes,
+                    gt_boxes=None, *,
+                    dt_thickness=1,
+                    gt_thickness=1,
+                    gt_color=(255,0,0)): 
     """ Draw detected objects in image
 
     Inputs
