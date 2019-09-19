@@ -1,9 +1,8 @@
+numpy
+numba
+scipy
 scikit-image
 scikit-learn
-scipy
-numpy
-bbx
-matplotlib
 opencv-python
-tensorflow-gpu==1.12.0
-jupyter
+protobuf
+object-detection

@@ -17,7 +17,7 @@ setup(
     url = "",
     keywords = "object detection, waldboost",
     packages = ["waldboost"],
-    install_requires = ["numpy", "scikit-image", "scikit-learn", "scipy", "protobuf", "numba", "opencv-python"],
+    install_requires = ["numpy", "scikit-image", "scikit-learn", "scipy", "protobuf", "numba", "opencv-python", "object-detection"],
     scripts = None,
     python_requires = ">=3.6",
     include_package_data = True,

@@ -1,4 +1,8 @@
 include README.md
+include LICENSE
+include AUTHORS
 include waldboost/*.py
+include waldboost/fpga/*.py
 include waldboost/VERSION
 exclude waldboost/__pycache__
+exclude waldboost/fpga/__pycache__
