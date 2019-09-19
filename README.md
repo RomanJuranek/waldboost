@@ -4,12 +4,12 @@ Object detection with WaldBoost detector for Python/Numpy. The detection
 algortithm is similar to Aggregated Channel Features detector by Piotr Dollar.
 The training algortithm is different - WaldBoost instead of Constant Soft Cascade.
 
-The detector supports:
-* Channel features - any channel type, shrinking, smoothing
-* Decision tree or decision stump (dtree with depth 1) weak classifiers
-* Output verification with CNN
+The package supports
+* Custom channel features - any channel type, shrinking, smoothing
+* Decision tree weak classifiers
+* FPGA-friendly training and inference pipeline
 
-NOTE: The implementation is not intended to be fast.
+The purpose of this package is to provide reference implementation of detector training and inference of images for Python. It is not meant to be fast. We however did our best to speed up things using Numba while keeping the code as simple as possible.
 
 **Acknowledgment** Development of this software was funded by ECSEL FitOptiVis project and V3C Center of Competence.
 
@@ -17,25 +17,20 @@ NOTE: The implementation is not intended to be fast.
 
 Necessary requirements include:
 * numpy
+* numba
 * scipy
 * scikit-image
 * scikit-learn
 * opencv-python
 * protobuf
-* bbx
 
-`waldboost.verification` module additionally require
-* tensorflow-gpu (or pure tensorflow)
+Additionally, the package requires [*Tensorflow Object Detection API*](https://github.com/tensorflow/models) which implements manipulation with bounding boxes (which we found full-featured and comprehensive enough) and detector testing. This cannot be installed by pip and user need to install it manually. This is not good a solution and we will try to find another way how to install the API in an automated way in future releases.
 
 The package can be installed through `pip`
 
 ```sh
 pip install waldboost-*.tgz
 ```
-
-# Documentation
-
-[Documentation](doc/api.md)
 
 # Quick start
 
@@ -56,9 +51,9 @@ channel_opts = {
     "n_per_oct": 8,
     "smooth": 1,
     "target_dtype": np.float32,
-    "channels": [ wb.grad_mag ]
+    "channels": [ wb.channels.grad_hist ]
 }
-shape = (12,12,1)
+shape = (12,12,4)
 ```
 
 Initialize new model, sample pool (source of training data), and learner (training algorithm and state).
@@ -66,7 +61,7 @@ Initialize new model, sample pool (source of training data), and learner (traini
 ```python
 model = wb.Model(shape, channel_opts)
 pool = wb.Pool(shape, min_tp=1000, min_fp=1000)
-learner = wb.Learner(alpha=0.2, wh=wb.DSKlearnDTree, max_depth=2))
+learner = wb.Learner(alpha=0.2, max_depth=2))
 ```
 
 Run the training. Each iteration updates training set from images produced by user-specified generator, and adds new stage to the model.
@@ -84,10 +79,10 @@ Finally model can be used for detection on new images, and saved to file.
 ```python
 model.save("detector.pb")
 image,*_ = next(training_images)
-bbs, score = model.detect(image)
+boxes = model.detect(image)
 ```
 
-Function `wb.load_model` can load the model form file. Custom objects can be passed to the function in case that channel functions must be imported from other package.
+Function `wb.load_model` can load the model form file.
 
 ```python
 model = wb.Model.load("detector.pb")

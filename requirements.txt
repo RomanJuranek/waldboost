@@ -5,4 +5,3 @@ scikit-image
 scikit-learn
 opencv-python
 protobuf
-object-detection
