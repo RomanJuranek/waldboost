@@ -266,3 +266,45 @@ def train(model,
             cb(model, learner, stage)
 
     return learner
+
+
+def train_softcascade(shape,
+                      channel_opts,
+                      length,
+                      training_images,
+                      callbacks):
+
+    logging.warning("Do not use this function")
+
+    casc_thr = -1.0
+    pool = SamplePool(
+        min_tp=4000,
+        min_fp=20000,
+        min_tp_iou=0.75,
+        max_tp_candidates=5,
+        max_fp_candidates=50,
+    )
+
+    model = Model(shape, channel_opts)
+    pool.update(model, training_images)
+
+    for stage, stage_length in enumerate(length):
+        print(f"Stage {stage}: length={stage_length}")
+        learner = Learner(max_depth=2)
+        pool.print_stats()
+        for w in range(stage_length):
+            print(f"weak={w}")
+            pool.update(model, training_images)
+            X0,H0 = pool.get_false_positives()
+            X1,H1 = pool.get_true_positives()
+            loss,*_ = learner.fit_stage(model, X0, H0, X1, H1, theta=-np.inf)
+            print(f"loss={loss:.6f}")
+        model.theta = [casc_thr] * stage_length
+        for cb in callbacks:
+            cb(model, learner, stage)
+        if stage == len(length)-1:
+            return model
+        pool.update(model, training_images)
+        for boxes in pool.samples:
+            boxes.get_field("scores")[:] = 0
+        model = Model(shape, channel_opts)

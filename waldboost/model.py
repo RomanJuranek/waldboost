@@ -166,7 +166,7 @@ class Model:
             boxes = bbox.BoxList(self.get_boxes(r,c,scale))
             boxes.add_field("scores", h)
             dt_boxes.append(boxes)
-        return bbox.np_box_list_ops.concatenate(dt_boxes)
+        return bbox.concatenate(dt_boxes)
 
     def predict(self, X):
         """ Predict model on samples
@@ -287,9 +287,8 @@ class Model:
         for f in self.channel_opts["channels"]:
             proto.channel_opts.func.append(symbol_name(f))
         for weak,theta in self:
-            w_pb = model_pb2.DTree()
+            w_pb = proto.classifier.add()
             weak.as_proto(w_pb)
-            proto.classifier.append(w_pb)
             proto.theta.append(theta)
 
     @staticmethod

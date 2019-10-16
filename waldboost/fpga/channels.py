@@ -26,8 +26,8 @@ def _grad_y(arr):
     return dy
 
 
-@nb.njit(["u1[:,:,:](u1[:,:])"], nogil=True)
-def grad_hist_4_u1(arr):
+@nb.njit(nogil=True)
+def _grad_hist_4_u1(arr):
     """
     8bit input -> 4 channel 32bit (but clamped to 8 bits)
 
@@ -49,11 +49,19 @@ def grad_hist_4_u1(arr):
     return np.fmin(np.abs(y)//4, 255).astype(np.uint8)
 
 
-@nb.njit(["u1[:,:,:](u1[:,:])"], nogil=True)
-def grad_mag_u1(arr):
+def grad_hist_4_u1(image):
+    return _grad_hist_4_u1(image)
+
+
+@nb.njit(nogil=True)
+def _grad_mag_u1(arr):
     dx = np.abs(_grad_x(arr))
     dy = np.abs(_grad_y(arr))
     dst_shape = (arr.shape[0], arr.shape[1], 1)
     y = np.empty(dst_shape, np.int32)
     y[...,0] = np.maximum(dx, dy)
     return np.fmin(y//4, 255).astype(np.uint8)
+
+
+def grad_mag_u1(image):
+    return _grad_mag_u1(image)

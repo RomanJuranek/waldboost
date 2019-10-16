@@ -76,7 +76,7 @@ def max_pool_2(arr):
     return np.fmax(m0, m1)
 
 
-@nb.stencil( neighborhood=((-1,1),(-1,1),(0,0)) )
+@nb.stencil(neighborhood=((-1,1),(-1,1),(0,0)) )
 def _smooth(arr):
     v =   arr[-1,-1,0] + 2*arr[-1,0,0] +   arr[-1,1,0] + \
         2*arr[ 0,-1,0] + 4*arr[ 0,0,0] + 2*arr[ 0,1,0] + \
@@ -84,13 +84,7 @@ def _smooth(arr):
     return v
 
 
-_signatures = [
-    "f4[:,:,:](f4[:,:,:])",
-    "i4[:,:,:](i4[:,:,:])",
-    "u1[:,:,:](u1[:,:,:])",
-]
-
-@nb.njit(_signatures, nogil=True)
+@nb.njit(nogil=True)
 def smooth_image_3d(arr):
     smoothed = np.empty_like(arr)
     smoothed[:] = _smooth(arr) / 16
@@ -141,3 +135,5 @@ def channel_pyramid(image, channel_opts):
                 chns = smooth_image_3d(chns)
 
             yield np.atleast_3d(chns), real_scale/shrink
+
+

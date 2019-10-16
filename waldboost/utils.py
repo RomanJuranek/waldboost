@@ -75,6 +75,7 @@ def draw_detections(image,
     
     # Draw gt_boxes
     if gt_boxes is not None:
+        has_ignore = gt_boxes.has_field("ignore")
         for ymin,xmin,ymax,xmax in gt_boxes.get().astype("i"):
             cv2.rectangle(img, (xmin,ymin), (xmax,ymax), gt_color, thickness=gt_thickness)
 
@@ -99,13 +100,13 @@ def fake_data_generator():
         gt = [  ]
         n_objects = np.random.randint(0,4)
         for _ in range(n_objects):
-            w = np.random.randint(30,50)
+            w = np.random.randint(30,60)
             x = np.random.randint(256-w)
             y = np.random.randint(256-w)
-            i =  np.random.uniform(0.2,1)
+            i =  np.random.uniform(0.1,1)
             image[y:y+w,x:x+w] += i
-            gt.append( [y-5,x-5,y+w+10,x+w+10] )
-        image += 0.1*np.random.rand(*image.shape)
+            gt.append( [y-5,x-5,y+w+5,x+w+5] )
+        image += np.random.rand(*image.shape) * 0.3*np.random.rand()
         image = (np.clip(image, 0,1)*255).astype("u1")
         gt = np.array(gt,"f") if gt else np.empty((0,4))
         gt_boxes = groundtruth.bbox_list(gt)
@@ -114,11 +115,12 @@ def fake_data_generator():
 
 class ShowImageCallback():
     """Callback that shows image and detections"""
-    def __init__(self, image, gt_boxes):
+    def __init__(self, image, gt_boxes, max_fpr=0.05):
         self.image = image
         self.gt = gt_boxes
+        self.max_fpr = max_fpr
     def __call__(self, model, learner, stage):
-        if learner.false_positive_rate < 0.05:
+        if learner.false_positive_rate < self.max_fpr:
             dt_boxes = model.detect(self.image)
             I = draw_detections(self.image, dt_boxes, self.gt, gt_thickness=3, gt_color=(255,0,0))
             cv2.imshow("Testing image", I)  # pylint: disable=no-member
@@ -127,4 +129,4 @@ class ShowImageCallback():
 
 def class_prob_callback(model, learner, stage):
     print(f"Stage {stage}:")
-    print(f"\tp0 = {learner.P0:.5f}; p1 = {learner.P1:.5f}")
+    print(f"\tp0 = {learner.false_positive_rate:.5f}; p1 = {learner.true_positive_rate:.5f}")

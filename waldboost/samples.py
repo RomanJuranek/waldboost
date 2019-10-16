@@ -243,9 +243,9 @@ class SamplePool(object):
         self.logger = logger or logging.getLogger("SamplePool")
 
     def print_stats(self):
-        #print("Pool stats:")
-        #print(f"tp: {self.n_tp}; fp: {self.n_fp}")
-        #print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
+        print("Pool stats:")
+        print(f"tp: {self.n_tp}; fp: {self.n_fp}")
+        print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
         pass
 
     def update(self, model, gen):
