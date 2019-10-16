@@ -11,7 +11,7 @@ The package supports
 
 The purpose of this package is to provide reference implementation of detector training and inference of images for Python. It is not meant to be fast. We however did our best to speed up things using Numba while keeping the code as simple as possible.
 
-**Acknowledgment** Development of this software was funded by ECSEL FitOptiVis project and V3C Center of Competence.
+**Acknowledgment** Development of this software was funded by TACR project and V3C Center of Competence (TE01020415) and ECSEL FitOptiVis (No 783162).
 
 # Installation
 
@@ -28,7 +28,7 @@ Additionally, the package requires [*Tensorflow Object Detection API*](https://g
 
 The package can be installed through `pip`
 
-```sh
+```bash
 pip install waldboost-*.tgz
 ```
 
@@ -36,14 +36,14 @@ pip install waldboost-*.tgz
 
 Following example show basic pipeline for training the detector.
 
-Include the package and other required packages (e.g. dataset generators etc.)
+1. Include the package and other required packages (e.g. dataset generators etc.)
 
 ```python
 import waldboost as wb
 # ...
 ```
 
-Setup training parameters. Define how image channels are calculated and detector window size. For detailed info see `wb.channels.channel_pyramid`.
+2. Setup training parameters. Define how image channels are calculated and detector window size. For detailed info see `wb.channels.channel_pyramid`.
 
 ```python
 channel_opts = {
@@ -56,7 +56,7 @@ channel_opts = {
 shape = (12,12,4)
 ```
 
-Initialize new model, sample pool (source of training data), and learner (training algorithm and state).
+3. Initialize new model, sample pool (source of training data), and learner (training algorithm and state).
 
 ```python
 model = wb.Model(shape, channel_opts)
@@ -64,7 +64,7 @@ pool = wb.Pool(shape, min_tp=1000, min_fp=1000)
 learner = wb.Learner(alpha=0.2, max_depth=2))
 ```
 
-Run the training. Each iteration updates training set from images produced by user-specified generator, and adds new stage to the model.
+4. Run the training. Each iteration updates training set from images produced by user-specified generator, and adds new stage to the model.
 
 ```python
 for stage in range(len(model),T):
@@ -74,7 +74,7 @@ for stage in range(len(model),T):
     learner.fit_stage(model, X0, H0, X1, H1)
 ```
 
-Finally model can be used for detection on new images, and saved to file.
+4. Finally model can be used for detection on new images, and saved to file.
 
 ```python
 model.save("detector.pb")
@@ -82,7 +82,7 @@ image,*_ = next(training_images)
 boxes = model.detect(image)
 ```
 
-Function `wb.load_model` can load the model form file.
+5. Function `wb.load_model` can load the model form file.
 
 ```python
 model = wb.Model.load("detector.pb")

@@ -14,3 +14,4 @@ models
 *.pbz
 .vscode
 datasets
+waldboost_package.code-workspace

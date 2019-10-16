@@ -63,17 +63,22 @@
 * ~~Discard old messages from proto and simplify structure~~
 * ~~Correct symbol initialization when loading~~
 * ~~classifier as list of DTree, theta in its own array so it can be modified~~
+* Channel opts as object 
 * Optimizations
   * Numba and CUDA for one selected variant
+* Stats
+  * Keep worst case eval. cost (possibly rewrite stats gthering)
 
 ## Data sampling
 * ~~Change image set during training~~ Fixed by "resume learning"
 * ~~Either update bbx package to be more consistent or use bbox (or other) package~~
 * ~~Better API for Pool~~
 * ~~Fix dt_boxes is None and gt_boxes is None cases~~
+* Change data generator to yield dict with "image", "ground_truth_boxes" keys
 
-## Ground Truth
+## Ground Truth and Bounding Box
 * ~~Improve bbGt reading - return BoxList~~
+* Utility functions in bbox module - empty, empty_like, scale, set_aspect_ratio, ....
 
 ## Verification
 * Consider rename module - postprocessing?
