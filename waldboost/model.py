@@ -283,9 +283,7 @@ class Model:
         proto.channel_opts.shrink = self.channel_opts["shrink"]
         proto.channel_opts.n_per_oct = self.channel_opts["n_per_oct"]
         proto.channel_opts.smooth = self.channel_opts["smooth"]
-        proto.channel_opts.target_dtype = symbol_name(self.channel_opts["target_dtype"])
-        for f in self.channel_opts["channels"]:
-            proto.channel_opts.func.append(symbol_name(f))
+        proto.channel_opts.func = symbol_name(self.channel_opts["channels"])
         for weak,theta in self:
             w_pb = proto.classifier.add()
             weak.as_proto(w_pb)
@@ -299,8 +297,7 @@ class Model:
             "shrink": proto.channel_opts.shrink,
             "n_per_oct": proto.channel_opts.n_per_oct,
             "smooth": proto.channel_opts.smooth,
-            "target_dtype": symbol_from_name(proto.channel_opts.target_dtype),
-            "channels": [ symbol_from_name(s) for s in proto.channel_opts.func ],
+            "channels":  symbol_from_name(proto.channel_opts.func),
         }
         M = Model(shape, channel_opts)
         for weak_proto, theta_proto in zip(proto.classifier, proto.theta):
@@ -308,13 +305,12 @@ class Model:
             M.append(weak, theta_proto)
         return M
 
-    def save(self, filename, compress=False):
+    def save(self, filename):
         """ Save model to protobuf file """
         proto = model_pb2.Model()
         self.as_proto(proto)
         data = proto.SerializeToString()
-        if compress:
-            data = zlib.compress(data, 9)
+        data = zlib.compress(data, 9)
         with open(filename, "wb") as f:
             f.write(data)
 
@@ -325,8 +321,8 @@ class Model:
             data = f.read()
         proto = model_pb2.Model()
         try:
-            proto.ParseFromString(data)
-        except DecodeError:
             data = zlib.decompress(data)
-        proto.ParseFromString(data)
+            proto.ParseFromString(data)
+        except (DecodeError, zlib.error):
+            raise ValueError(f"Cannot read model from {filename}")
         return Model.from_proto(proto)
