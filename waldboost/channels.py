@@ -1,10 +1,9 @@
 import logging
 
-import cv2
 import numba as nb
 import numpy as np
 from scipy.ndimage import convolve1d
-
+from skimage.transform import resize
 
 logger = logging.getLogger(__name__)
 
@@ -91,43 +90,57 @@ def smooth_image_3d(arr):
     return smoothed
 
 
-def _image_octaves(image, min_size=(16,16)):
+def _image_octaves(image):
     """ Generate downsampled images """
     base_image = image.copy()
     while True:
-        yield base_image
         h,w = base_image.shape[:2]
-        if ((w//2,h//2) < min_size):
+        if w < 8 or h < 8:
             break
+        yield base_image
         base_image = avg_pool_2(base_image)
+
+
+def _validate_image(image:np.ndarray):
+    if not isinstance(image, np.ndarray):
+        raise TypeError("Image must be numpy array")
+    if image.ndim != 2:
+        raise ValueError("Image must have 2 dimensions")
 
 
 def channel_pyramid(image, channel_opts):
     """ Generate image pyramid """
+
+    _validate_image(image)
+
     shrink = channel_opts["shrink"]
     n_per_oct = channel_opts["n_per_oct"]
     smooth = channel_opts["smooth"]
     channels = channel_opts["channels"]
-    # target_dtype = channel_opts["target_dtype"]
     assert shrink in [1,2], "Shrink factor must be integer 1 <= shrink <= 2"
+
+    dtype = image.dtype
+
     factor = 2**(-1/n_per_oct)
     for base_image in _image_octaves(image):
         h,w,*_ = base_image.shape
         for i in range(n_per_oct):
+            # Get the size for level i
             s = factor ** i
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
             real_scale = nw / image.shape[1]
-            im = cv2.resize(base_image, (nw, nh), cv2.INTER_LINEAR)[...,None] # pylint: disable=no-member
-            chns = channels(im[...,0])
-            #chns = np.atleast_3d(im[...,0])
+            im = resize(base_image, (nw, nh), preserve_range=True, order=1).astype(dtype)
+            
+            #print(im.shape, im.dtype, im.max())
+
+            chns = channels(im)
 
             if shrink == 2:
                 chns = avg_pool_2(chns)
-                #chns = max_pool_2(chns)
 
             if smooth == 1:
                 chns = smooth_image_3d(chns)
 
+            #print("CHANNELS: ", chns.shape, chns.dtype, chns.max())
+
             yield np.atleast_3d(chns), real_scale/shrink
-
-

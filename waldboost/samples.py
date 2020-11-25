@@ -251,8 +251,11 @@ class SamplePool(object):
     def update(self, model, gen):
         self.prune(model)
         if self.require_tp or self.require_fp:
-            for image,gt_boxes,*_ in gen:
+            #for image,gt_boxes,*_ in gen:
+            for gt_dict in gen:
                 self.print_stats()
+                image = gt_dict.get("image")
+                gt_boxes = gt_dict.get("groundtruth_boxes")
                 dt_boxes = get_samples_from_image(model, image, gt_boxes, tp=self.require_tp, fp=self.require_fp, **self.label_boxes_args)
                 if dt_boxes.num_boxes() == 0:
                     continue

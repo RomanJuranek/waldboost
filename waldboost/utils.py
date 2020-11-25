@@ -70,8 +70,8 @@ def draw_detections(image,
         Ground truth boxes
     """
     img = image.copy()
-    if image.shape[2] == 1:
-        img = cv2.cvtColor(img[...,0], cv2.COLOR_GRAY2BGR)
+    if image.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     
     # Draw gt_boxes
     if gt_boxes is not None:
@@ -98,19 +98,19 @@ def fake_data_generator():
     while True:
         image = np.zeros( (256,256), "f" )
         gt = [  ]
-        n_objects = np.random.randint(0,4)
+        n_objects = np.random.randint(2)
         for _ in range(n_objects):
             w = np.random.randint(30,60)
             x = np.random.randint(256-w)
             y = np.random.randint(256-w)
-            i =  np.random.uniform(0.1,1)
+            i = np.random.uniform(0.2,1)
             image[y:y+w,x:x+w] += i
             gt.append( [y-5,x-5,y+w+5,x+w+5] )
         image += np.random.rand(*image.shape) * 0.3*np.random.rand()
-        image = (np.clip(image, 0,1)*255).astype("u1")
+        image = (np.clip(image, 0, 1)*255).astype("u1")
         gt = np.array(gt,"f") if gt else np.empty((0,4))
         gt_boxes = groundtruth.bbox_list(gt)
-        yield np.atleast_3d(image), gt_boxes
+        yield dict(image=np.atleast_2d(image), groundtruth_boxes=gt_boxes)
 
 
 class ShowImageCallback():

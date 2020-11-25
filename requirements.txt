@@ -1,7 +1,5 @@
 numpy
 numba
 scipy
-scikit-image
 scikit-learn
-opencv-python
 protobuf
