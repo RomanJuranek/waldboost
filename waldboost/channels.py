@@ -129,7 +129,7 @@ def channel_pyramid(image, channel_opts):
             s = factor ** i
             nw, nh = int((w*s)/shrink)*shrink, int((h*s)/shrink)*shrink
             real_scale = nw / image.shape[1]
-            im = resize(base_image, (nw, nh), preserve_range=True, order=1).astype(dtype)
+            im = resize(base_image, (nh, nw), preserve_range=True, order=1).astype(dtype)
             
             #print(im.shape, im.dtype, im.max())
 
