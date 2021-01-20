@@ -8,30 +8,8 @@ import matplotlib as mpl
 import numpy as np
 from matplotlib import cm
 
-import waldboost as wb
-
-from . import groundtruth, bbox
-
-
-def takemin(iterable, objective=None):
-    current_min_el = None
-    for idx, el in enumerate(iterable):
-        current_el = el if objective is None else objective(el)
-        if current_min_el is None or current_el < current_min_el:
-            current_min_el = current_el
-            yield idx, el
-
-
-def save_cache(data, filename):
-    import pickle
-    with open(filename, "wb") as f:
-        pickle.dump(data, f)
-
-
-def load_cache(filename):
-    import pickle
-    with open(filename, "rb") as f:
-        return pickle.load(f)
+from . import groundtruth
+import bbx
 
 
 def montage(X, nrows=4, ncols=4, figsize=None):
@@ -57,7 +35,8 @@ def draw_detections(image,
                     gt_boxes=None, *,
                     dt_thickness=1,
                     gt_thickness=1,
-                    gt_color=(255,0,0)): 
+                    gt_color=(255,0,0),
+                    vmin=None,vmax=None): 
     """ Draw detected objects in image
 
     Inputs
@@ -75,23 +54,28 @@ def draw_detections(image,
     
     # Draw gt_boxes
     if gt_boxes is not None:
-        has_ignore = gt_boxes.has_field("ignore")
-        for ymin,xmin,ymax,xmax in gt_boxes.get().astype("i"):
-            cv2.rectangle(img, (xmin,ymin), (xmax,ymax), gt_color, thickness=gt_thickness)
+        for x1,y1,x2,y2 in gt_boxes.get().astype("i"):
+            cv2.rectangle(img, (x1,y1), (x2,y2), gt_color, thickness=gt_thickness)
 
     # Draw dt_boxes
-    if dt_boxes.num_boxes() > 0:
+    if dt_boxes:
         scores = dt_boxes.get_field("scores")
-        N = mpl.colors.Normalize(vmin=scores.min()-1e-1, vmax=scores.max())
-        colors = cm.plasma
 
-        dt_boxes = bbox.sort_by_field(dt_boxes, "scores", bbox.SortOrder.ASCEND)
-        for (ymin,xmin,ymax,xmax),score in zip(dt_boxes.get().astype("i"), dt_boxes.get_field("scores") ):
-            clr = (255*np.array(colors(N(score)))[2::-1]).astype("u1")
+        if vmin is None:
+            vmin = scores.min()
+        if vmax is None:
+            vmax = scores.max()
+
+        N = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+        colors = cm.plasma      
+
+        dt_boxes = bbx.sort_by_field(dt_boxes, "scores", descending=True)
+        for (x1,y1,x2,y2),score in zip(dt_boxes.get().astype("i"), dt_boxes.get_field("scores") ):
+            clr = (255*np.array(colors(N(score)))).astype("u1")
             clr = tuple(map(int, clr))
-            cv2.rectangle(img, (xmin,ymin), (xmax,ymax), clr, thickness=dt_thickness)
+            cv2.rectangle(img, (x1,y1), (x2,y2), clr, thickness=dt_thickness)
     
-    return img
+    return img[...,::-1]
 
 
 def fake_data_generator():
@@ -109,7 +93,7 @@ def fake_data_generator():
         image += np.random.rand(*image.shape) * 0.3*np.random.rand()
         image = (np.clip(image, 0, 1)*255).astype("u1")
         gt = np.array(gt,"f") if gt else np.empty((0,4))
-        gt_boxes = groundtruth.bbox_list(gt)
+        gt_boxes = groundtruth.bbox_list(gt, format=groundtruth.RectFormat.YXYX)
         yield dict(image=np.atleast_2d(image), groundtruth_boxes=gt_boxes)
 
 

@@ -41,12 +41,12 @@ rects = boxes.get()  # rects is (N,4) array with [ymin,xmin,ymax,xmax] coordinat
 
 
 import logging
-from collections import defaultdict
 
 import numpy as np
 from pkg_resources import resource_filename
+import bbx
 
-from . import bbox, channels
+from . import channels, samples, groundtruth
 from .model import Model
 from .samples import SamplePool
 from .training import BasicRejectionSchedule, DTree, Learner
@@ -77,8 +77,8 @@ def detect(image,
            score_threshold=-10):
     """ Detect objects in image. See Model.detect """
     boxes = model.detect(image)
-    if boxes.num_boxes() > 0:
-        boxes = bbox.non_max_suppression(boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
+    if boxes:
+        boxes = bbx.non_max_suppression(boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
     return boxes
 
 

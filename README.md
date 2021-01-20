@@ -23,8 +23,7 @@ Necessary requirements include:
 * scikit-learn
 * opencv-python
 * protobuf
-
-Additionally, the package requires [*Tensorflow Object Detection API*](https://github.com/tensorflow/models) which implements manipulation with bounding boxes (which we found full-featured and comprehensive enough) and detector testing. This cannot be installed by pip and user need to install it manually. This is not good a solution and we will try to find another way how to install the API in an automated way in future releases.
+* bbx >= 0.0.5
 
 The package can be installed through `pip`
 
@@ -46,13 +45,7 @@ import waldboost as wb
 2. Setup training parameters. Define how image channels are calculated and detector window size. For detailed info see `wb.channels.channel_pyramid`.
 
 ```python
-channel_opts = {
-    "shrink": 2,
-    "n_per_oct": 8,
-    "smooth": 1,
-    "target_dtype": np.float32,
-    "channels": [ wb.channels.grad_hist ]
-}
+channel_opts = dict(shrink=2, n_per_oct=8, smooth=1, channels=wb.channels.grad_hist)
 shape = (12,12,4)
 ```
 

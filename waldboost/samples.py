@@ -1,15 +1,11 @@
 """ Support for generating samples from images
-
-TODO
 """
 
-
 import logging
-import math
 
 import numpy as np
-
-from . import bbox
+import bbx
+from bbx import Boxes
 
 
 def gather_samples(chns, rs, cs, shape):
@@ -85,8 +81,8 @@ class SampleLabel:
     IGNORE = 0
 
 
-def label_boxes(dt_boxes,
-                gt_boxes,
+def label_boxes(dt_boxes:Boxes,
+                gt_boxes:Boxes,
                 min_tp_iou = 0.7,
                 max_fp_iou = 0.3,
                 max_tp_candidates = 100,
@@ -125,32 +121,33 @@ def label_boxes(dt_boxes,
         Index of a box from gt_boxes with highest iou. Valid for true
         positives (tp_label == 1). Values are from range(0, gt_boxes.num_boxes())
     """
-    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(gt_boxes.num_boxes())
+    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(len(gt_boxes))
     if ignore_flag.ndim != 1:
         raise ValueError("'ignore' field must be single dimension")
-    if gt_boxes.num_boxes() > 0:
-        overlap = bbox.np_box_list_ops.iou(dt_boxes, gt_boxes)
+    if len(gt_boxes) > 0:
+        overlap = bbx.iou(dt_boxes, gt_boxes)
         dt_iou = np.max(overlap, axis=1)
         dt_instance_id = np.argmax(overlap, axis=1)
         dt_ignore_flag = ignore_flag[dt_instance_id]
         fp = select_candidates(dt_iou < max_fp_iou, max_fp_candidates)
         tp = select_candidates(np.logical_and(dt_iou > min_tp_iou, dt_ignore_flag == 0), max_tp_candidates)
-        box_label = np.full(dt_boxes.num_boxes(), SampleLabel.IGNORE, np.int32)
+        box_label = np.full(len(dt_boxes), SampleLabel.IGNORE, np.int32)
         box_label[tp] = SampleLabel.TRUE_POSITIVE
         box_label[fp] = SampleLabel.FALSE_POSITIVE
     else:
-        dt_instance_id = np.full(dt_boxes.num_boxes(), -1, np.int32)
-        box_label = np.full(dt_boxes.num_boxes(), SampleLabel.IGNORE, np.int32)
-        fp = select_candidates(np.ones(dt_boxes.num_boxes(), np.bool), max_fp_candidates)
+        dt_instance_id = np.full(len(dt_boxes), -1, np.int32)
+        box_label = np.full(len(dt_boxes), SampleLabel.IGNORE, np.int32)
+        fp = select_candidates(np.ones(len(dt_boxes), np.bool), max_fp_candidates)
         box_label[fp] = SampleLabel.FALSE_POSITIVE
-    dt_boxes.add_field("instance_id", dt_instance_id)
-    dt_boxes.add_field("tp_label", box_label)
+    dt_boxes.set_field("instance_id", dt_instance_id)
+    dt_boxes.set_field("tp_label", box_label)
 
 
 def get_regression_target(dt_boxes, gt_boxes):
     if not dt_boxes.has_field("instance_id"):
         raise ValueError("'instance_id' field is missing")
-    regression_target = dt_boxes.get() - bbox.np_box_list_ops.gather(gt_boxes, dt_boxes.get_field("instance_id")).get()
+    gt_idx = dt_boxes.get_field("instance_id")
+    regression_target = dt_boxes.get() - gt_boxes[gt_idx].get()
     dt_boxes.add_field("regression_target", regression_target)
 
 
@@ -191,10 +188,12 @@ def get_samples_from_image(model,
     box_lists = []
     for chns,scale,(r,c,h) in model.scan_channels(image):
         # Get dt_boxes from locations detected by model
-        dt_boxes = bbox.BoxList(model.get_boxes(r,c,scale))
-        dt_boxes.add_field("scores", h)
-        dt_boxes.add_field("row", r)
-        dt_boxes.add_field("col", c)
+        if r.size == 0: continue
+        dt_boxes = Boxes(model.get_boxes(r,c,scale))  # dt_boxes in the original image space
+        dt_boxes.set_field("scores", h)
+        dt_boxes.set_field("row", r)
+        dt_boxes.set_field("col", c)
+        #print(chns.shape)
         # Label the detections
         label_boxes(dt_boxes, gt_boxes, **kwargs)
         # Select what should be included in output
@@ -203,12 +202,12 @@ def get_samples_from_image(model,
             np.logical_and(tp_label== 1, tp),
             np.logical_and(tp_label==-1, fp))
         sample_indices = np.reshape(np.where(sample_selector), [-1])
-        dt_boxes = bbox.np_box_list_ops.gather(dt_boxes, sample_indices)
+        dt_boxes = dt_boxes[sample_indices]
         # Crop the feature maps
         samples = gather_samples(chns, dt_boxes.get_field("row").flatten(), dt_boxes.get_field("col").flatten(), model.shape)
-        dt_boxes.add_field("samples", samples)
+        dt_boxes.set_field("samples", samples)
         box_lists.append(dt_boxes)
-    return bbox.np_box_list_ops.concatenate(box_lists, fields={"scores", "tp_label", "instance_id", "samples"})
+    return bbx.concatenate(box_lists)
 
 
 class SamplePool(object):
@@ -257,7 +256,7 @@ class SamplePool(object):
                 image = gt_dict.get("image")
                 gt_boxes = gt_dict.get("groundtruth_boxes")
                 dt_boxes = get_samples_from_image(model, image, gt_boxes, tp=self.require_tp, fp=self.require_fp, **self.label_boxes_args)
-                if dt_boxes.num_boxes() == 0:
+                if len(dt_boxes) == 0:
                     continue
                 self.samples.append(dt_boxes)
                 sample_label = dt_boxes.get_field("tp_label")
@@ -294,7 +293,7 @@ class SamplePool(object):
                continue
             score_field = s.get_field("scores")
             score_field[:] = score  # FIXME this is a hack
-            pruned_s = s if keep_indices.size==s.num_boxes() else bbox.np_box_list_ops.gather(s, keep_indices)
+            pruned_s = s if keep_indices.size==len(s) else s[keep_indices]
             pruned_samples.append(pruned_s)
             sample_label = pruned_s.get_field("tp_label")
             n_tp += (sample_label== 1).sum()
@@ -311,9 +310,9 @@ class SamplePool(object):
             mask = np.flatnonzero(mask)
             if mask.size > 0:
                 #print(mask)
-                boxes.append(bbox.np_box_list_ops.gather(s, mask))
+                boxes.append(s[mask])
         #print([b.num_boxes() for b in boxes])
-        return bbox.np_box_list_ops.concatenate(boxes)
+        return bbx.concatenate(boxes)
 
     def get_samples(self, label):
         boxes = self.filter_by_tp_label(label=label)

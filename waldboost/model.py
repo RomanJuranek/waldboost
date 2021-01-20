@@ -12,8 +12,9 @@ from importlib import import_module
 
 import numpy as np
 from google.protobuf.message import DecodeError
+import bbx
 
-from . import bbox, model_pb2
+from . import model_pb2
 from .channels import channel_pyramid
 from .training import DTree
 
@@ -132,9 +133,9 @@ class Model:
         yield from ((chns, scale, self.predict_on_image(chns)) for chns, scale in self.channels(image))
 
     def get_boxes(self, r, c, scale):
-        """ Get boxes in YXYX format """
+        """ Get boxes in XYWH format """
         m,n,_ = self.shape
-        return np.array([r, c, r+m-1, c+n-1], "f").transpose() / scale
+        return np.array([c, r, c+n-1, r+m-1], "f").transpose() / scale
 
     def detect(self, image):
         """ Detect objects in image
@@ -147,7 +148,7 @@ class Model:
 
         Returns
         -------
-        dt_boxes : BoxList or None
+        dt_boxes : Boxes or None
             Bounding boxes of deteced objects with 'scores' field
 
         Examples
@@ -157,16 +158,16 @@ class Model:
         if dt is not None:
             for box,score in zip(dt.get(), dt.get_field("scores")):
                 # Process bbox
-                # ymin,xmin,ymax,xmax = box
+                # xmin,ymin,xmax,ymax = box
                 # ...
         """
         dt_boxes = []
         for chns, scale in self.channels(image):
             r,c,h = self.predict_on_image(chns)
-            boxes = bbox.BoxList(self.get_boxes(r,c,scale))
-            boxes.add_field("scores", h)
+            boxes = bbx.Boxes(self.get_boxes(r,c,scale))
+            boxes.set_field("scores", h)
             dt_boxes.append(boxes)
-        return bbox.concatenate(dt_boxes)
+        return bbx.concatenate(dt_boxes)
 
     def predict(self, X):
         """ Predict model on samples
