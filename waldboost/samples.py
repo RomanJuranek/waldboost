@@ -2,10 +2,13 @@
 """
 
 import logging
+from typing import Tuple
 
-import numpy as np
 import bbx
+import numpy as np
 from bbx import Boxes
+
+from .model import Model
 
 
 def gather_samples(chns, rs, cs, shape):
@@ -91,11 +94,11 @@ def label_boxes(dt_boxes:Boxes,
     
     Input
     -----
-    dt_boxes : BoxList
+    dt_boxes : Boxes or None
         List of boxes to be labeled (can contain any extra fields). At most
         max_tp_candidates and max_fp_candidates will be labeled as tp/fp,
         others will be labeled as ignore.
-    gt_boxes : BoxList
+    gt_boxes : Boxes or None
         List of ground truth boxes with optional 'ignore' field.
     min_tp_iou : float
         Boxes with iou>min_tp_iou are considered as true positives.
@@ -121,16 +124,19 @@ def label_boxes(dt_boxes:Boxes,
         Index of a box from gt_boxes with highest iou. Valid for true
         positives (tp_label == 1). Values are from range(0, gt_boxes.num_boxes())
     """
-    ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(len(gt_boxes))
-    if ignore_flag.ndim != 1:
-        raise ValueError("'ignore' field must be single dimension")
-    if len(gt_boxes) > 0:
+    if dt_boxes is None:
+        return
+    if gt_boxes is not None:
+        ignore_flag = gt_boxes.get_field("ignore") if gt_boxes.has_field("ignore") else np.zeros(len(gt_boxes))
+        if ignore_flag.ndim != 1:
+            raise ValueError("'ignore' field must be single dimension")
         overlap = bbx.iou(dt_boxes, gt_boxes)
         dt_iou = np.max(overlap, axis=1)
         dt_instance_id = np.argmax(overlap, axis=1)
         dt_ignore_flag = ignore_flag[dt_instance_id]
         fp = select_candidates(dt_iou < max_fp_iou, max_fp_candidates)
         tp = select_candidates(np.logical_and(dt_iou > min_tp_iou, dt_ignore_flag == 0), max_tp_candidates)
+        #logging.debug(f"tp {len(tp)} fp {len(fp)}")
         box_label = np.full(len(dt_boxes), SampleLabel.IGNORE, np.int32)
         box_label[tp] = SampleLabel.TRUE_POSITIVE
         box_label[fp] = SampleLabel.FALSE_POSITIVE
@@ -165,7 +171,7 @@ def get_samples_from_image(model,
         Detection model - a producer of feature maps and locations of objects
     image : np.ndarray
         Grayscale image
-    gt_boxes : BBoxList
+    gt_boxes : Boxes or None
         List of ground truth bounding boxes with optional 'ignore field'
     tp/fp : bool, int
         Include tp/fp when evaluates to True
@@ -185,11 +191,10 @@ def get_samples_from_image(model,
     --------
     label_boxes : Function that decides what is tp/fp/ignored
     """
-    box_lists = []
     for chns,scale,(r,c,h) in model.scan_channels(image):
         # Get dt_boxes from locations detected by model
         if r.size == 0: continue
-        dt_boxes = Boxes(model.get_boxes(r,c,scale))  # dt_boxes in the original image space
+        dt_boxes = model.get_boxes(r,c,scale)  # dt_boxes in the original image space
         dt_boxes.set_field("scores", h)
         dt_boxes.set_field("row", r)
         dt_boxes.set_field("col", c)
@@ -199,15 +204,16 @@ def get_samples_from_image(model,
         # Select what should be included in output
         tp_label = dt_boxes.get_field("tp_label")
         sample_selector = np.logical_or(
-            np.logical_and(tp_label== 1, tp),
-            np.logical_and(tp_label==-1, fp))
-        sample_indices = np.reshape(np.where(sample_selector), [-1])
+            np.logical_and(tp_label==SampleLabel.TRUE_POSITIVE, tp),
+            np.logical_and(tp_label==SampleLabel.FALSE_POSITIVE, fp))
+        sample_indices = np.flatnonzero(sample_selector)
         dt_boxes = dt_boxes[sample_indices]
+        if len(dt_boxes) == 0:
+            continue
         # Crop the feature maps
         samples = gather_samples(chns, dt_boxes.get_field("row").flatten(), dt_boxes.get_field("col").flatten(), model.shape)
         dt_boxes.set_field("samples", samples)
-        box_lists.append(dt_boxes)
-    return bbx.concatenate(box_lists)
+        yield dt_boxes
 
 
 class SamplePool(object):
@@ -233,89 +239,68 @@ class SamplePool(object):
         pool.update(model, [(image, boxes)])
         X,H = pool.get_true_positives()
         """
-        self.samples = []
+        self.samples = None
         self.min_tp = min_tp
         self.min_fp = min_fp
-        self.n_tp = 0
-        self.n_fp = 0
         self.label_boxes_args = kwargs
         self.logger = logger or logging.getLogger("SamplePool")
 
-    def print_stats(self):
-        print("Pool stats:")
-        print(f"tp: {self.n_tp}; fp: {self.n_fp}")
-        print(f"Require tp: {self.require_tp}; fp: {self.require_fp}")
-        pass
-
-    def update(self, model, gen):
-        self.prune(model)
-        if self.require_tp or self.require_fp:
-            #for image,gt_boxes,*_ in gen:
-            for gt_dict in gen:
-                self.print_stats()
-                image = gt_dict.get("image")
-                gt_boxes = gt_dict.get("groundtruth_boxes")
-                dt_boxes = get_samples_from_image(model, image, gt_boxes, tp=self.require_tp, fp=self.require_fp, **self.label_boxes_args)
-                if len(dt_boxes) == 0:
-                    continue
-                self.samples.append(dt_boxes)
-                sample_label = dt_boxes.get_field("tp_label")
-                new_tp = (sample_label== 1).sum()
-                new_fp = (sample_label==-1).sum()
-                self.n_tp += new_tp
-                self.n_fp += new_fp
-                self.logger.debug(f"Added {new_tp} tp and {new_fp} fp samples")
-                if not self.require_tp and not self.require_fp:
+    def update(self, model, iterable):
+        """
+        Add new samples by scanning images provided from iterable
+        """
+        self.update_scores(model)
+        self.remove_low_scoring()  # removes samples with score==-np.inf
+        stats = self.pool_stats()
+        sample_tp = max(self.min_tp - stats["num_tp"], 0)
+        sample_fp = max(self.min_fp - stats["num_fp"], 0)
+        self.logger.debug(f"{sample_tp}, {sample_fp}")
+        if sample_tp or sample_fp:
+            new_samples = []
+            for gt_dict in iterable:
+                self.logger.info(f"Require tp: {sample_tp}; fp: {sample_fp}")
+                image = gt_dict["image"]
+                gt_boxes = gt_dict["groundtruth_boxes"]
+                for dt_boxes in get_samples_from_image(model, image, gt_boxes, tp=sample_tp>0, fp=sample_fp>0, **self.label_boxes_args):
+                    sample_label = dt_boxes.get_field("tp_label")
+                    new_tp = (sample_label==SampleLabel.TRUE_POSITIVE).sum()
+                    new_fp = (sample_label==SampleLabel.FALSE_POSITIVE).sum()
+                    sample_tp -= new_tp
+                    sample_fp -= new_fp
+                    self.logger.debug(f"Added tp: {new_tp}, fp: {new_fp}, {len(dt_boxes)}")
+                    new_samples.append(dt_boxes)
+                if sample_fp <= 0 and sample_tp <= 0:
                     break
-            else:
-                self.logger.debug("Iterator exhausted")
-        self.print_stats()
-
-    @property
-    def require_tp(self):
-        """ Number of tp samples required to fill the pool """
-        return max(0, self.min_tp - self.n_tp)
-
-    @property
-    def require_fp(self):
-        """ Number of fp samples required to fill the pool """
-        return max(0, self.min_fp - self.n_fp)
-
-    def prune(self, model):
-        """ Remove samples rejected by the model from the pool """
-        pruned_samples = []
-        n_tp = 0
-        n_fp = 0
-        for s in self.samples:
-            score,mask = model.predict(s.get_field("samples"))
-            keep_indices = np.flatnonzero(mask)
-            if keep_indices.size == 0:
-               continue
-            score_field = s.get_field("scores")
-            score_field[:] = score  # FIXME this is a hack
-            pruned_s = s if keep_indices.size==len(s) else s[keep_indices]
-            pruned_samples.append(pruned_s)
-            sample_label = pruned_s.get_field("tp_label")
-            n_tp += (sample_label== 1).sum()
-            n_fp += (sample_label==-1).sum()
-        self.samples = pruned_samples  # concatenate ?
-        self.n_tp = n_tp
-        self.n_fp = n_fp
-        self.print_stats()
+            if new_samples:
+                if self.samples is not None:
+                    self.samples = bbx.concatenate([self.samples] + new_samples)
+                else:
+                    self.samples = bbx.concatenate(new_samples)
     
-    def filter_by_tp_label(self, label):
-        boxes = []
-        for s in self.samples:
-            mask = s.get_field("tp_label") == label
-            mask = np.flatnonzero(mask)
-            if mask.size > 0:
-                #print(mask)
-                boxes.append(s[mask])
-        #print([b.num_boxes() for b in boxes])
-        return bbx.concatenate(boxes)
+    def pool_stats(self):
+        if self.samples is None:
+            return dict(num_tp=0, num_fp=0)
+        labels = self.samples.get_field("tp_label")
+        num_tp = (labels==SampleLabel.TRUE_POSITIVE).sum()
+        num_fp = (labels==SampleLabel.FALSE_POSITIVE).sum()
+        return dict(num_tp=num_tp, num_fp=num_fp)
 
-    def get_samples(self, label):
-        boxes = self.filter_by_tp_label(label=label)
+    def update_scores(self, model:Model):
+        # Eval model on all samples and update "scores" field
+        if self.samples is not None:
+            new_scores,_ = model.predict(self.samples.get_field("samples"))
+            self.samples.set_field("scores", new_scores)
+
+    def remove_low_scoring(self, min_score=-np.inf):
+        """ Remove samples rejected by the model from the pool """
+        if self.samples is not None:
+            mask = self.samples.get_field("scores") > min_score
+            keep_indices = np.flatnonzero(mask)
+            self.samples = self.samples[keep_indices]
+    
+    def get_samples(self, label:SampleLabel) -> Tuple[np.ndarray, np.ndarray]:
+        labels = self.samples.get_field("tp_label")
+        boxes = self.samples[labels==label]
         X = boxes.get_field("samples")
         H = boxes.get_field("scores").flatten()
         return X, H
@@ -331,7 +316,7 @@ class SamplePool(object):
         H : ndarray
             Sample scores with shape (N,)
         """
-        return self.get_samples(label=1)
+        return self.get_samples(label=SampleLabel.TRUE_POSITIVE)
 
     def get_false_positives(self):
         """
@@ -344,4 +329,4 @@ class SamplePool(object):
         H : ndarray
             Sample scores with shape (N,)
         """
-        return self.get_samples(label=-1)
+        return self.get_samples(label=SampleLabel.FALSE_POSITIVE)
