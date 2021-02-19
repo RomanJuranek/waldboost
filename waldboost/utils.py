@@ -69,7 +69,7 @@ def draw_detections(image,
         N = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
         colors = cm.plasma      
 
-        dt_boxes = bbx.sort_by_field(dt_boxes, "scores", descending=True)
+        dt_boxes = bbx.sort_by_field(dt_boxes, "scores", descending=False)
         for (x1,y1,x2,y2),score in zip(dt_boxes.get().astype("i"), dt_boxes.get_field("scores") ):
             clr = (255*np.array(colors(N(score)))).astype("u1")
             clr = tuple(map(int, clr))

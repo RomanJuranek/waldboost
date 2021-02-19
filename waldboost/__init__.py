@@ -72,23 +72,16 @@ save = save_model
 
 
 def detect(image,
-           model,
-           iou_threshold=0.2,
-           score_threshold=-10):
+           model):
     """ Detect objects in image. See Model.detect """
-    boxes = model.detect(image)
-    if boxes:
-        boxes = bbx.non_max_suppression(boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
-    return boxes
+    return model.detect(image)
 
 
 def detect_multiple(image,
                     *models,
                     channel_opts=None,
                     response_scale=None,
-                    separate=False,
-                    iou_threshold=0.2,
-                    score_threshold=-10):
+                    separate=False):
     """ Detect objects in image using multiple detectors (with shared channel options)
 
     Inputs
@@ -155,18 +148,15 @@ def detect_multiple(image,
         for k, model in enumerate(models):
             # Evaluate each model on the channels
             r,c,h = model.predict_on_image(chns)
-            boxes = bbox.BoxList(model.get_boxes(r, c, scale))
+            boxes = model.get_boxes(r, c, scale)
             if separate:
                 scores = np.zeros((boxes.num_boxes(),n_classes), "f")
                 scores[:,k] = h * response_scale[k]
             else:
                 scores = h * response_scale[k]
-            boxes.add_field("scores", scores)
+            boxes.set_field("scores", scores)
             dt_boxes.append(boxes)
-    dt_boxes = bbox.np_box_list_ops.concatenate(dt_boxes)
-    if dt_boxes.num_boxes() > 0:
-        nms_func = bbox.non_max_suppression if not separate else bbox.multi_class_non_max_suppression
-        dt_boxes = nms_func(dt_boxes, iou_threshold=iou_threshold, score_threshold=score_threshold)
+    dt_boxes = bbx.concatenate(dt_boxes)
     return dt_boxes
 
 
