@@ -13,6 +13,7 @@ from importlib import import_module
 import numpy as np
 from google.protobuf.message import DecodeError
 import bbx
+from bbx import Boxes
 
 from . import model_pb2
 from .channels import channel_pyramid
@@ -132,12 +133,20 @@ class Model:
         """
         yield from ((chns, scale, self.predict_on_image(chns)) for chns, scale in self.channels(image))
 
-    def get_boxes(self, r, c, scale):
-        """ Get boxes in XYWH format """
-        m,n,_ = self.shape
-        return np.array([c, r, c+n-1, r+m-1], "f").transpose() / scale
+    def get_boxes(self, r, c, scale) -> Boxes:
+        """ Get boxes in XYXY format """
+        if r.size == 0:
+            return Boxes(np.empty((0,4),"f"))
+        m,n = self.shape[:2]
+        x1 = c.reshape(-1,1)
+        y1 = r.reshape(-1,1)
+        x2 = x1 + n
+        y2 = y1 + m
+        rects = np.concatenate([x1,y1,x2,y2], axis=1).astype(np.float32)
+        #print(rects.shape, rects.dtype)
+        return Boxes(rects).normalized(scale=1.0/scale)
 
-    def detect(self, image):
+    def detect(self, image) -> Boxes:
         """ Detect objects in image
 
         Parameters
@@ -164,7 +173,7 @@ class Model:
         dt_boxes = []
         for chns, scale in self.channels(image):
             r,c,h = self.predict_on_image(chns)
-            boxes = bbx.Boxes(self.get_boxes(r,c,scale))
+            boxes = self.get_boxes(r,c,scale)
             boxes.set_field("scores", h)
             dt_boxes.append(boxes)
         return bbx.concatenate(dt_boxes)
@@ -201,6 +210,7 @@ class Model:
             if theta == -np.inf:
                 continue
             mask = np.logical_and(mask, H>=theta)
+        H[~mask] = -np.inf
         return H, mask
 
     def predict_on_image(self, X):
