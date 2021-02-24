@@ -17,7 +17,7 @@ setup(
     url = "https://github.com/RomanJuranek/waldboost",
     keywords = "object detection, waldboost",
     packages = ["waldboost"],
-    install_requires = ["numpy", "scikit-learn", "scipy", "protobuf", "numba"],
+    install_requires = ["numpy", "scikit-learn", "scipy", "protobuf", "numba", "bbx>=0.0.7"],
     scripts = None,
     python_requires = ">=3.6",
     include_package_data = True,

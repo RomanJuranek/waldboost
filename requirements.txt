@@ -3,3 +3,4 @@ numba
 scipy
 scikit-learn
 protobuf
+bbx >= 0.0.7
