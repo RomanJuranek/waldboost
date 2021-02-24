@@ -41,6 +41,7 @@ rects = boxes.get()  # rects is (N,4) array with [ymin,xmin,ymax,xmax] coordinat
 
 
 import logging
+from bbx.boxes import Boxes
 
 import numpy as np
 from pkg_resources import resource_filename
@@ -63,7 +64,7 @@ __version__ = _set_version()
 load = load_model = Model.load
 
 
-def save_model(model, filename):
+def save_model(model:Model, filename):
     """ Save model to file. See Model.save """
     model.save(filename)
 
@@ -71,18 +72,9 @@ def save_model(model, filename):
 save = save_model
 
 
-def detect(image,
-           model):
-    """ Detect objects in image. See Model.detect """
-    return model.detect(image)
-
-
-def detect_multiple(image,
-                    *models,
-                    channel_opts=None,
-                    response_scale=None,
-                    separate=False):
-    """ Detect objects in image using multiple detectors (with shared channel options)
+def detect(image:np.ndarray, *models:Model, channel_opts:dict=None, response_scale=None) -> Boxes:
+    """
+    Detect objects in image using multiple detectors (with shared channel options)
 
     Inputs
     ------
@@ -95,69 +87,47 @@ def detect_multiple(image,
         can specify their own. Usually they do not need to be modified, except
         for channel_opts["n_per_oct"] parameter which controls number of scales
         in pyramid.
-    separate : bool
-        When True, models are treated as multiple classes
+    respose_scale: ndarray, list
+        List of scale factors for each model. Responses of models are multiplied by
+        this factor when stored in the result. This can be useful when different models
+        have different ranges of output (due to differences in their training).
+        Say model0 has range [-5,5], model1 has range [-1,1], then response_scale=[1,5]
+        will equalize the ranges and the result can be used safely in non maxumum suppression.
 
     Outputs
     -------
-    dt_boxes : BoxList
-        Bounding boxes of detected objects with 'scores' field. When separate=False,
-        scores are (N,1) array. separate=True results in scores with shape (N,len(models)).
-        dt_boxes can be passed to non_max_suppression (when separate=False) or to
-        multi_class_non_max_suppression (when separate=True).
+    dt_boxes : Boxes
+        Bounding boxes of detected objects with 'scores' and 'label' fields.
+        The 'scores' represent score for each detection, 'label' is the index
+        of model emiting the detection
 
     See also
     --------
-    waldboost.detect : Detection with single model
-    waldboost.bbox.np_bbox_list_ops.non_max_suppression
-    waldboost.bbox.np_bbox_list_ops.multi_class_non_max_suppression
+    Model.detect
 
     Notes
     -----
-    Calling detect_multiple(image, model) is exactly equivalent to detect(image, model)
-    and also to model.detect(image).
-
-    Example
-    -------
-    Multiple classes:
-        model_files = ["face.pbz", "car.pbz"]
-        models = [waldboost.load(f) for f in model_files]
-        image = imread("image.jpg")  # Need grayscale uint8
-        detections = detect_multiple(image, *models, separate=True)
-
-    Single class, multiple detectors:
-        model_files = ["scale_0.pbz", "scale_1.pbz"]
-        models = [waldboost.load(f) for f in model_files]
-        image = imread("image.jpg")  # Need grayscale uint8
-        # Modify how channels are calculated (if needed)
-        channels = models[0].channel_opts
-        channels["n_per_oct"] = 1
-        detections = detect_multiple(image, *models, channel_opts=channels, separate=False)
-
-    Also call with individual models as positional arguments (instead of list) is possible:
-        detect_multiple(image, model_a, model_b, model_c)
+    Calling detect(image, model) is equivalent to model.detect(image) except for
+    label filed in the resulting boxes    
     """
     channel_opts = channel_opts or models[0].channel_opts
     if response_scale is None:
         response_scale = [1] * len(models)  # No scale given -> do not change values
     response_scale = np.array(response_scale, "f")
-    n_classes = len(models)
+    if response_scale.size != len(models):
+        raise ValueError("Wrong response_scale parameter")
     dt_boxes = []
     for chns, scale in channels.channel_pyramid(image, channel_opts):
         # Generate channel pyramid from the input image
         for k, model in enumerate(models):
             # Evaluate each model on the channels
             r,c,h = model.predict_on_image(chns)
+            if r.size == 0: continue
             boxes = model.get_boxes(r, c, scale)
-            if separate:
-                scores = np.zeros((boxes.num_boxes(),n_classes), "f")
-                scores[:,k] = h * response_scale[k]
-            else:
-                scores = h * response_scale[k]
-            boxes.set_field("scores", scores)
+            boxes.set_field("scores", h * response_scale[k])
+            boxes.set_field("label", np.full(r.size, k, dtype=np.int))
             dt_boxes.append(boxes)
-    dt_boxes = bbx.concatenate(dt_boxes)
-    return dt_boxes
+    return bbx.concatenate(dt_boxes, ["scores", "label"])
 
 
 def train(model,
