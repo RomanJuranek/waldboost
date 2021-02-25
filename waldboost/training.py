@@ -22,11 +22,14 @@ def as_features(X):
 
 class DTree:
     def __init__(self, feature, threshold, left, right, prediction):
-        self.feature = feature
-        self.threshold = threshold
-        self.left = left
-        self.right = right
-        self.prediction = prediction
+        self.feature = np.array([f if f is not None else [0,0,0] for f in feature], np.uint8)
+        self.node = np.array([f is not None for f in feature], np.bool)
+        self.threshold = np.array(threshold, np.float32)
+        self.left = np.array(left, np.int8)
+        self.right = np.array(right, np.int8)
+        self.prediction = np.array(prediction, np.float32)
+        self.node_idx = np.flatnonzero(self.node)
+        
     @staticmethod
     def fit(X0, W0, X1, W1, **kwargs):
         X = np.concatenate( [as_features(X0), as_features(X1)] )
@@ -74,20 +77,17 @@ class DTree:
             r,c,ch = ftr
             idx = np.flatnonzero(node == n)
             bin = X[idx,r,c,ch] <= t
-            node[idx[ bin]] = lnode
-            node[idx[~bin]] = rnode
+            node[idx] = np.where(bin, lnode, rnode)
         return node
     def predict(self, X):
         return self.prediction[self.apply(X)]
     def predict_on_image(self, X, rs, cs):
         node = np.zeros(rs.size,"i")
-        for n,(ftr,t,lnode,rnode) in enumerate(zip(self.feature, self.threshold, self.left, self.right)):
-            if ftr is None: continue
-            r,c,ch = ftr
+        for n in self.node_idx:
+            r,c,ch = self.feature[n]
             idx = np.flatnonzero(node == n)
-            bin = X[rs[idx]+r,cs[idx]+c,ch] <= t
-            node[idx[ bin]] = lnode
-            node[idx[~bin]] = rnode
+            bin = X[rs[idx]+r,cs[idx]+c,ch] <= self.threshold[n]
+            node[idx] = np.where(bin, self.left[n], self.right[n])
         return self.prediction[node]
 
 
