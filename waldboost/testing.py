@@ -7,98 +7,100 @@ https://github.com/tensorflow/models
 
 import logging
 
+import bbx
 import numpy as np
+import sklearn.metrics
+from bbx import Boxes
 
 import waldboost as wb
-from object_detection.utils.object_detection_evaluation import \
-    ObjectDetectionEvaluator
-
-from . import bbox
 
 
-def detection_dict(dt_boxes):
+class Evaluator:
+    def __init__(self):
+        self.clear()
+    def clear(self):
+        self.eval_data = dict()
+    def add_ground_truth(self, idx, boxes:Boxes, shape):
+        if idx not in self.eval_data:
+            self.eval_data[idx] = dict()
+        self.eval_data[idx].update(gt=boxes, shape=shape)
+    def add_detections(self, idx, boxes:Boxes):
+        if idx not in self.eval_data:
+            self.eval_data[idx] = dict()
+        self.eval_data[idx].update(dt=boxes)
+    def evaluate(self, match_iou_threshold=0.5, dt_iou_threshold=0.5, min_gt_area=0, min_gt_area_in_image=1, normalize_ar=None):
+        labels = []
+        scores = []
+        ignored = []
+        for img_result_dict in self.eval_data.values():
+            # Get ground truth info
+            gt_boxes = img_result_dict["gt"]
+            h,w = img_result_dict["shape"]
+            img_box = bbx.Boxes([0,0,w,h])
+            gt_ignore=gt_boxes.get_field("ignore")
+            gt_ignore = np.logical_or.reduce([
+                gt_ignore,
+                gt_boxes.area() < min_gt_area,
+                ~bbx.boxes_in_window(gt_boxes, img_box, min_overlap=min_gt_area_in_image)
+                ])
+            
+            dt_boxes = bbx.non_max_suppression(img_result_dict["dt"], iou_threshold=dt_iou_threshold)
+            dt_scores=dt_boxes.get_field("scores")
+
+            if normalize_ar is not None:
+                dt_boxes = bbx.set_aspect_ratio(dt_boxes, normalize_ar)
+                gt_boxes = bbx.set_aspect_ratio(gt_boxes, normalize_ar)
+
+            print(len(gt_boxes), len(dt_boxes))
+            iou = bbx.iou(gt_boxes, dt_boxes)
+
+            assigned_gt = iou.argmax(axis=0)
+            ign = gt_ignore[assigned_gt]
+            tp = (iou.max(axis=0) > match_iou_threshold)[~ign]
+            score = dt_scores[~ign]
+            print(gt_ignore, ign, tp)
+
+            ignored.append(gt_ignore)
+            labels.append(tp)
+            scores.append(score)
+
+        y_true = np.concatenate(labels)
+        scores = np.concatenate(scores)
+        ignored = np.concatenate(ignored)
+
+        p,r,t = sklearn.metrics.precision_recall_curve(y_true, scores)
+        
+        eval_dict = dict(
+            precision=p.tolist(), recall=r.tolist(), threshold=t.tolist(),
+            auc = sklearn.metrics.auc(r, p),
+            iou_threshold=iou_threshold,
+            n_eval=(ignored==0).sum(),
+            n_ign=(ignored!=0).sum()
+            )
+        return eval_dict
+
+
+def evaluate_model(testing_images, *model):
     """
-    Convert BoxList to detection dict
-    """
-    return {
-        "detection_boxes": dt_boxes.get(),
-        "detection_scores": dt_boxes.get_field("scores"),
-        "detection_classes": np.ones(dt_boxes.num_boxes(), "i"),
-    }
-
-
-def evaluate_model(model, testing_images, category_index=None, **detect_kws):
-    """ Test the given model on testing images and return evaluation structure
-
-    Inputs
-    ------
-    model : list of wb.Model
-    testing_images : generator
-    category_index : dict
-    detect_kws :
-        Allowed keyword arguments are:
-        * channel_opts
-        * response_scale
-        * separate
-        * iou_threshold,
-        * score_threshold
-        See wb.detect_multiple for details
+    Test the given model on testing images and return evaluation structure
     """
 
-    if isinstance(model, wb.Model):
-        model = [model]
+    E = Evaluator()
+
+    for idx,(gt,dt,shape) in enumerate(detect_on_images(testing_images, *model)):
+        E.add_ground_truth(idx, gt, shape)
+        E.add_detections(idx, dt)
+        logging.info(f"{idx}")
+        if idx == 200:
+            break
     
-    if not isinstance(model, list):
-        raise ValueError("Model must be waldboost.Model or list of waldboost.Model")
-
-    if category_index is None:
-        category_index = [{"id":1,"name":"object"}]
-
-    E = ObjectDetectionEvaluator(categories=category_index,
-                                 evaluate_precision_recall=True,
-                                 matching_iou_threshold=0.5,
-                                 evaluate_corlocs=True)
-
-    for idx,(gt_dict,dt_dict) in enumerate(detect_on_images(model, testing_images, **detect_kws)):
-        E.add_single_ground_truth_image_info(idx, gt_dict)
-        E.add_single_detected_image_info(idx, dt_dict)
-    
-    return E.evaluate()
+    return E
 
 
-def evaluate_results(results, category_index=None):
-
-    if category_index is None:
-        category_index = [{"id":1,"name":"object"}]
-
-    E = ObjectDetectionEvaluator(categories=category_index,
-                                 evaluate_precision_recall=True,
-                                 matching_iou_threshold=0.5,
-                                 evaluate_corlocs=True)
-
-    ign_key = "groundtruth_ignore"
-    d_key = "groundtruth_difficult"
-    for idx,(gt_dict,dt_dict) in enumerate(results):
-        if ign_key in gt_dict:
-            gt_dict[d_key] = gt_dict[ign_key]
-        print(gt_dict)
-        E.add_single_ground_truth_image_info(idx, gt_dict)
-        E.add_single_detected_image_info(idx, dt_dict)
-    
-    return E.evaluate()
-
-
-def detect_on_images(model, images, **detect_kws):
+def detect_on_images(images, *model, gt_key="groundtruth_boxes"):
+    empty_boxes = Boxes(np.empty((0,4)), ignore=[])
     for data_dict in images:
-        #print(list(data_dict.keys()))
         image = data_dict.get("image")
-        gt_boxes = data_dict.get("groundtruth_boxes")
-        logging.debug(f"Processing {data_dict.get('filename')}")
-        dt_boxes = wb.detect_multiple(image, *model, **detect_kws)
-        dt_dict = detection_dict(dt_boxes)
-        gt_dict = {
-            "groundtruth_boxes": gt_boxes.get(),
-            "groundtruth_classes": np.ones(gt_boxes.num_boxes(),"i"),
-            "groundtruth_ignore": gt_boxes.get_field("ignore").flatten(),
-        }
-        yield gt_dict, dt_dict
+        gt_boxes = data_dict.get(gt_key, empty_boxes)
+        dt_boxes = wb.detect(image, *model)
+        yield gt_boxes, dt_boxes, image.shape[:2]
