@@ -37,9 +37,8 @@ class Evaluator:
             gt_boxes = img_result_dict["gt"]
             h,w = img_result_dict["shape"]
             img_box = bbx.Boxes([0,0,w,h])
-            gt_ignore=gt_boxes.get_field("ignore")
             gt_ignore = np.logical_or.reduce([
-                gt_ignore,
+                gt_boxes.get_field("ignore") != 0,
                 gt_boxes.area() < min_gt_area,
                 ~bbx.boxes_in_window(gt_boxes, img_box, min_overlap=min_gt_area_in_image)
                 ])
@@ -51,14 +50,16 @@ class Evaluator:
                 dt_boxes = bbx.set_aspect_ratio(dt_boxes, normalize_ar)
                 gt_boxes = bbx.set_aspect_ratio(gt_boxes, normalize_ar)
 
-            print(len(gt_boxes), len(dt_boxes))
             iou = bbx.iou(gt_boxes, dt_boxes)
-
-            assigned_gt = iou.argmax(axis=0)
-            ign = gt_ignore[assigned_gt]
-            tp = (iou.max(axis=0) > match_iou_threshold)[~ign]
-            score = dt_scores[~ign]
-            print(gt_ignore, ign, tp)
+            
+            if iou.shape[0] > 0:
+                assigned_gt = iou.argmax(axis=0)
+                ign = gt_ignore[assigned_gt]
+                tp = (iou.max(axis=0) > match_iou_threshold)[~ign]
+                score = dt_scores[~ign]
+            else:
+                tp = np.zeros(len(dt_boxes), np.bool)
+                score = dt_scores
 
             ignored.append(gt_ignore)
             labels.append(tp)
@@ -73,14 +74,14 @@ class Evaluator:
         eval_dict = dict(
             precision=p.tolist(), recall=r.tolist(), threshold=t.tolist(),
             auc = sklearn.metrics.auc(r, p),
-            iou_threshold=iou_threshold,
+            iou_threshold=match_iou_threshold,
             n_eval=(ignored==0).sum(),
             n_ign=(ignored!=0).sum()
             )
         return eval_dict
 
 
-def evaluate_model(testing_images, *model):
+def evaluate_model(testing_images, *model, num_images=None):
     """
     Test the given model on testing images and return evaluation structure
     """
@@ -90,10 +91,9 @@ def evaluate_model(testing_images, *model):
     for idx,(gt,dt,shape) in enumerate(detect_on_images(testing_images, *model)):
         E.add_ground_truth(idx, gt, shape)
         E.add_detections(idx, dt)
-        logging.info(f"{idx}")
-        if idx == 200:
+        if num_images is not None and idx == num_images:
             break
-    
+
     return E
 
 
