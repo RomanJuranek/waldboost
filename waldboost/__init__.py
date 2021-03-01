@@ -200,7 +200,7 @@ def train(model,
     ----------
     [1] Sochman et al.: Waldboost-learning for time constrained sequential detection, CVPR 2005
     """
-    logger = logger or logging.getLogger("training")
+    logger = logger or logging.getLogger("Training")
 
     if len(model) >= length:
         return
@@ -216,12 +216,11 @@ def train(model,
     pool = pool or SamplePool()
 
     for stage in range(len(model), length):
-        logger.info(f"Training stage {stage}")
         pool.update(model, training_images)
         X0,H0 = pool.get_false_positives()
         X1,H1 = pool.get_true_positives()
         loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta_schedule(stage, learner.false_positive_rate))
-        logger.debug(f"Loss: {loss:0.5f}, fpr: {p0:0.5f}, tpr: {p1:0.5f}")
+        logger.debug(f"Stage {stage}: loss: {loss:g}, fpr: {p0:g}, tpr: {p1:g}")
         for cb in callbacks:
             cb(model, learner, stage)
 
