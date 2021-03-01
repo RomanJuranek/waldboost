@@ -23,11 +23,11 @@ def as_features(X):
 class DTree:
     def __init__(self, feature, threshold, left, right, prediction):
         self.feature = np.array([f if f is not None else [0,0,0] for f in feature], np.uint8)
-        self.node = np.array([f is not None for f in feature], np.bool)
         self.threshold = np.array(threshold, np.float32)
         self.left = np.array(left, np.int8)
         self.right = np.array(right, np.int8)
         self.prediction = np.array(prediction, np.float32)
+        self.node = self.left >= 0
         self.node_idx = np.flatnonzero(self.node)
         
     @staticmethod
@@ -72,32 +72,28 @@ class DTree:
         proto.prediction.extend(self.prediction)
     def apply(self, X):
         node = np.zeros(X.shape[0], "i")
-        for n,(ftr,t,lnode,rnode) in enumerate(zip(self.feature, self.threshold, self.left, self.right)):
-            if ftr is None: continue
-            r,c,ch = ftr
+        for n in self.node_idx:
+        #for n,(ftr,t,lnode,rnode) in enumerate(zip(self.feature, self.threshold, self.left, self.right)):
+            r,c,ch = self.feature[n]
             idx = np.flatnonzero(node == n)
-            bin = X[idx,r,c,ch] <= t
-            node[idx] = np.where(bin, lnode, rnode)
+            bin = X[idx,r,c,ch] <= self.threshold[n]
+            node[idx] = np.where(bin, self.left[n], self.right[n])
         return node
     def predict(self, X):
         return self.prediction[self.apply(X)]
-    def predict_on_image(self, X, rs, cs):
+    def predict_on_image(self, X, rs, cs) -> np.ndarray:
         node = np.zeros(rs.size,"i")
+        idx_in_node = dict()
+        idx_in_node[0] = np.arange(rs.size)
         for n in self.node_idx:
             r,c,ch = self.feature[n]
-            idx = np.flatnonzero(node == n)
+            lnode, rnode = self.left[n], self.right[n]
+            idx = idx_in_node[n]
             bin = X[rs[idx]+r,cs[idx]+c,ch] <= self.threshold[n]
-            node[idx] = np.where(bin, self.left[n], self.right[n])
+            node[idx] = np.where(bin, lnode, rnode)
+            idx_in_node[lnode] = idx[ bin] 
+            idx_in_node[rnode] = idx[~bin] 
         return self.prediction[node]
-
-
-# def sample_training_data(X, H, W, n_samples=None, trim_ratio=0.2):
-#     if n_samples and n_samples < H.size:
-#         idx = weighted_sampling(n_samples, p=W/W.sum(), trim_ratio=trim_ratio)
-#         _X,_H = X[idx,...], H[idx]
-#     else:
-#         _X,_H = X, H
-#     return _X, _H
 
 
 def loss(H0, H1):
@@ -165,7 +161,12 @@ class Learner:
         W0 = weights(H0)
         W1 = weights(-H1)
 
-        weak = self.wh.fit(X0, W0, X1, W1, **{**self.wh_args, **wh_args})
+        n_sample = 2000
+
+        idx0 = np.random.choice(W0.size, n_sample, p=W0/W0.sum(), replace=W0.size < 1.5*n_sample)
+        idx1 = np.random.choice(W1.size, n_sample, p=W1/W1.sum(), replace=W1.size < 1.5*n_sample)
+
+        weak = self.wh.fit(X0[idx0], W0[idx0], X1[idx1], W1[idx1], **{**self.wh_args, **wh_args})
 
         # Update H
         H0 = H0 + weak.predict(X0)

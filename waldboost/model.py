@@ -236,11 +236,16 @@ class Model:
         u,v,ch_image = X.shape
         m,n,ch_cls = self.shape
         assert ch_image == ch_cls, f"Invalid number of channels. Expected {ch_cls} given {ch_image}."
-        idx = np.arange(max(u-m,0)*max(v-n,0), dtype=np.int32)
-        rs = idx % (u-m)
-        cs = idx // (u-m)
+        #idx = np.arange(max(u-m,0)*max(v-n,0), dtype=np.int32)
+        #rs = idx % (u-m)
+        #cs = idx // (u-m)
+
+        rs, cs = np.indices((max(u-m,0), max(v-n,0)))
+        rs = rs.flatten()
+        cs = cs.flatten()
+
         hs = np.zeros_like(rs, np.float32)
-        self.n_loc += hs.size  # pylint: disable=no-member
+        self.n_loc += hs.size
         for weak, theta in self:
             if not rs.size: break
             hs += weak.predict_on_image(X, rs, cs)
