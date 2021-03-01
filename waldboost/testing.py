@@ -1,8 +1,5 @@
 """
 Support for detector testing
-
-This requires TF Object detection API installed
-https://github.com/tensorflow/models
 """
 
 import logging
@@ -87,7 +84,7 @@ def evaluate_model(testing_images, *model, num_images=None):
     """
 
     E = Evaluator()
-
+    logging.info(f"Running model on {len(testing_images)} images")
     for idx,(gt,dt,shape) in enumerate(detect_on_images(testing_images, *model)):
         E.add_ground_truth(idx, gt, shape)
         E.add_detections(idx, dt)
