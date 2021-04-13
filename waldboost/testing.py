@@ -3,6 +3,9 @@ Support for detector testing
 """
 
 import logging
+import random
+from itertools import islice
+from typing import Sequence, Any
 
 import bbx
 import numpy as np
@@ -78,18 +81,45 @@ class Evaluator:
         return eval_dict
 
 
-def evaluate_model(testing_images, *model, num_images=None):
+def random_iterator(seq:Sequence[Any], maxlen=None) -> Any:
+    """
+    Iterate over random elements of the sequence.
+    """
+    if not hasattr(seq, "__len__") or not hasattr(seq, "__getitem__"):
+        raise TypeError("Sequence must be indexable")
+    N = len(seq)
+    order = list(range(N))
+    random.shuffle(order)
+    for i,j in enumerate(cycle(order)):
+        if maxlen is not None and i > maxlen:
+            return
+        yield seq[j]
+
+
+def evaluate_model(testing_images, *model, num_images=None, shuffle=False):
     """
     Test the given model on testing images and return evaluation structure
     """
+    if num_images is None:
+        if hasattr(testing_images, "__len__"):
+            num_images = len(testing_images)
+        else:
+            raise ValueError("Require num_images with infinite dataset")
+    
+    if shuffle:
+        testing_images = random_iterator(testing_images)
+    imgs = islice(testing_images, num_images)
 
     E = Evaluator()
-    logging.info(f"Running model on {len(testing_images)} images")
-    for idx,(gt,dt,shape) in enumerate(detect_on_images(testing_images, *model)):
+    logging.info(f"Running model on {num_images} images")
+    for idx,(gt,dt,shape) in enumerate(detect_on_images(imgs, *model), start=1):
         E.add_ground_truth(idx, gt, shape)
         E.add_detections(idx, dt)
-        if num_images is not None and idx == num_images:
-            break
+        if idx % 20 == 0:
+            logging.info(f"{idx}")
+
+    if num_images != idx:
+        logging.warning(f"Requested test on {num_images} but only {idx} images were given in dataset.")
 
     return E
 
