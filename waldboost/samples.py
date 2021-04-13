@@ -11,7 +11,7 @@ from bbx import Boxes
 from .model import Model
 
 
-def gather_samples(chns, rs, cs, shape):
+def gather_samples(chns:np.ndarray, rs:np.ndarray, cs:np.ndarray, shape:tuple) -> np.ndarray:
     """ Crop feature maps
 
     Input
@@ -86,10 +86,10 @@ class SampleLabel:
 
 def label_boxes(dt_boxes:Boxes,
                 gt_boxes:Boxes,
-                min_tp_iou = 0.7,
-                max_fp_iou = 0.3,
-                max_tp_candidates = 100,
-                max_fp_candidates = 100):
+                min_tp_iou:float=0.7,
+                max_fp_iou:float=0.3,
+                max_tp_candidates:int=100,
+                max_fp_candidates:int=100):
     """ Label boxes as TP, FP, or ignore and assign ground truth instance id
     
     Input
@@ -254,11 +254,11 @@ class SamplePool(object):
         stats = self.pool_stats()
         sample_tp = max(self.min_tp - stats["num_tp"], 0)
         sample_fp = max(self.min_fp - stats["num_fp"], 0)
-        self.logger.debug(f"Pool size: tp: {stats['num_tp']}, fp: {stats['num_fp']}")
+        self.logger.log(15, f"Pool size: tp: {stats['num_tp']}/{self.min_tp}, fp: {stats['num_fp']}/{self.min_fp}")
         if sample_tp or sample_fp:
             new_samples = []
             for gt_dict in iterable:
-                self.logger.debug(f"Require tp: {sample_tp}, fp: {sample_fp}")
+                self.logger.log(15, f"Require tp: {sample_tp}, fp: {sample_fp}")
                 image = gt_dict["image"]
                 gt_boxes = gt_dict["groundtruth_boxes"]
                 for dt_boxes in get_samples_from_image(model, image, gt_boxes, tp=sample_tp>0, fp=sample_fp>0, **self.label_boxes_args):
@@ -267,7 +267,6 @@ class SamplePool(object):
                     new_fp = (sample_label==SampleLabel.FALSE_POSITIVE).sum()
                     sample_tp -= new_tp
                     sample_fp -= new_fp
-                    #self.logger.debug(f"Added tp: {new_tp}, fp: {new_fp}, {len(dt_boxes)}")
                     new_samples.append(dt_boxes)
                 if sample_fp <= 0 and sample_tp <= 0:
                     break
@@ -297,14 +296,14 @@ class SamplePool(object):
             mask = self.samples.get_field("scores") > min_score
             keep_indices = np.flatnonzero(mask)
             self.samples = self.samples[keep_indices]
-            self.logger.debug(f"Removed {(mask==0).sum()}/{len(mask)} samples (min_score={min_score:.2f})")
+            self.logger.log(15, f"Removed {(mask==0).sum()}/{len(mask)} samples (min_score={min_score:.2f})")
     
     def get_samples(self, label:SampleLabel) -> Tuple[np.ndarray, np.ndarray]:
         labels = self.samples.get_field("tp_label")
         boxes = self.samples[labels==label]
         X = boxes.get_field("samples")
         H = boxes.get_field("scores").flatten()
-        return X, H
+        return X.copy(), H.copy()
 
     def get_true_positives(self):
         """

@@ -161,12 +161,12 @@ class Learner:
         W0 = weights(H0)
         W1 = weights(-H1)
 
-        n_sample = 2000
-
-        idx0 = np.random.choice(W0.size, n_sample, p=W0/W0.sum(), replace=W0.size < 1.5*n_sample)
-        idx1 = np.random.choice(W1.size, n_sample, p=W1/W1.sum(), replace=W1.size < 1.5*n_sample)
-
-        weak = self.wh.fit(X0[idx0], W0[idx0], X1[idx1], W1[idx1], **{**self.wh_args, **wh_args})
+        # n_sample = 2000
+        # idx0 = np.random.choice(W0.size, n_sample, p=W0/W0.sum(), replace=W0.size < 1.5*n_sample)
+        # idx1 = np.random.choice(W1.size, n_sample, p=W1/W1.sum(), replace=W1.size < 1.5*n_sample)
+        # weak = self.wh.fit(X0[idx0], W0[idx0], X1[idx1], W1[idx1], **{**self.wh_args, **wh_args})
+        
+        weak = self.wh.fit(X0, W0, X1, W1, **{**self.wh_args, **wh_args})
 
         # Update H
         H0 = H0 + weak.predict(X0)
@@ -193,30 +193,30 @@ def fit_rejection_threshold(H0, P0, H1, P1, alpha):
     max0 = np.max(H0)
     min1 = np.min(H1)
     if max0 < min1:
-        logger.debug(f"H0 and H1 are non-overlapping H0 < {max0}, H1 > {min1}")
+        logger.log(15, f"H0 and H1 are non-overlapping H0 < {max0}, H1 > {min1}")
         return min1
     ts = np.concatenate([H0.flatten(),H1.flatten()])
     ts = np.sort(np.unique(ts))
     #print(ts, ts.dtype)
     if ts.size < 3:
-        logger.debug(f"Not enough unique responses to estimate theta (forcing to {-np.inf})")
+        logger.log(15, f"Not enough unique responses to estimate theta (forcing to {-np.inf})")
         return -np.inf
     ts = ts[1:]
     R = np.empty_like(ts)
-    logger.debug(f"Testing {R.size} thresholds on interval <{min(ts):.2f},{max(ts):.2f}>")
+    logger.log(15, f"Testing {R.size} thresholds on interval <{min(ts):.2f},{max(ts):.2f}>")
     for i,t in enumerate(ts):
         p0 = (H0 < t).sum() / H0.size
         p1 = (H1 < t).sum() / H1.size
-        R[i] = (P0 * p0 + (1-P0)) / (P1 * p1 + (1-P1))
+        R[i] = (P0*p0 + (1-P0) + 1e-6) / (P1*p1 + (1-P1) + 1e-6)
     A = 1 / alpha
-    logger.debug(f"R: <{min(R):.2f},{max(R):.2f}>; need R > {A}")
+    logger.log(15, f"R: <{min(R):.2f},{max(R):.2f}>; need R > {A}")
     idx = np.nonzero(R > A)[0]
     if idx.size == 0:
-        logger.debug(f"No suitable theta found")
+        logger.log(15, f"No suitable theta found")
         theta = -np.inf
     else:
         theta = ts[np.max(idx)]
-    logger.debug(f"theta = {theta:.4f}")
+    logger.log(15, f"theta = {theta:.4f}")
     return theta
 
 

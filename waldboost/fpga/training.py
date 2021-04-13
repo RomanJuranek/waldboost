@@ -234,7 +234,7 @@ def train(model,
         learner.wh = DTree
 
     if "max_depth" not in learner.wh_args or \
-       learner.wh_args["max_depth"] != max_depth:
+        learner.wh_args["max_depth"] != max_depth:
         learner.wh_args["max_depth"] = max_depth  # FIXME: we are not supposed to touch Learner internals
 
     if len(model) > 0:
@@ -257,7 +257,7 @@ def train(model,
         else:
             ftrs = None
         loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, allowed_features=ftrs, theta=theta_schedule(stage, learner.false_positive_rate))
-        logger.debug(f"Loss: {loss:0.5f}, fpr: {p0:0.5f}, tpr: {p1:0.5f}")
+        logger.log(15, f"Stage {stage}: loss: {loss:g}, fpr: {p0:g}, tpr: {p1:g}")
         for cb in callbacks:
             cb(model, learner, stage)
 

@@ -220,7 +220,7 @@ def train(model,
         X0,H0 = pool.get_false_positives()
         X1,H1 = pool.get_true_positives()
         loss,p0,p1 = learner.fit_stage(model, X0, H0, X1, H1, theta=theta_schedule(stage, learner.false_positive_rate))
-        logger.debug(f"Stage {stage}: loss: {loss:g}, fpr: {p0:g}, tpr: {p1:g}")
+        logger.log(15, f"Stage {stage}: loss: {loss:g}, fpr: {p0:g}, tpr: {p1:g}")
         for cb in callbacks:
             cb(model, learner, stage)
 
